@@ -3,6 +3,8 @@ Matplotlib Tactical Road Graph Map rendering component.
 """
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+from PIL import Image
+import os
 from typing import List, Optional
 from src.backend.routing.graph import RoadNetwork
 
@@ -15,10 +17,15 @@ def render_road_network_figure(
 ) -> plt.Figure:
     """
     Renders an offline tactical road network map using pure Matplotlib.
-    Highlights normal roads, hazard-weighted zones, blocked closures, and the active A* path.
+    Supports rendering custom map background graphics overlays.
     """
     fig, ax = plt.subplots(figsize=(10, 7.5), facecolor="#0b0f19")
     ax.set_facecolor("#0f172a")
+
+    # Load Background Map Image Graphic if configured
+    if graph.bg_image_path and os.path.exists(graph.bg_image_path):
+        bg_img = Image.open(graph.bg_image_path)
+        ax.imshow(bg_img, extent=[0, 10, 0, 10], aspect="auto", alpha=0.85, zorder=0)
 
     # 1. Draw Edges
     for u in graph.adj:

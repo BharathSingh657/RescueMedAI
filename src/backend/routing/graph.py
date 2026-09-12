@@ -14,12 +14,21 @@ class RoadNetwork:
         self.nodes: Dict[str, Dict[str, Any]] = {}
         # adjacency: u -> {v: {"distance_km": float, "base_speed_kmh": float, "hazard_weight": float, "is_blocked": bool}}
         self.adj: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        self.bg_image_path: Optional[str] = None
 
-    def add_node(self, node_id: str, name: str, x: float, y: float, node_type: str = "intersection"):
+    def add_node(self, node_id: str, name: str, x: float, y: float, node_type: str = "intersection", lat: Optional[float] = None, lon: Optional[float] = None):
+        # Default mapping from grid (km) to lat/lon centered around 12.9814° N, 79.1401° E (Katpadi/Vellore)
+        base_lat = 12.9790 if lat is None else float(lat)
+        base_lon = 79.1380 if lon is None else float(lon)
+        calc_lat = base_lat + (y * 0.006) if lat is None else float(lat)
+        calc_lon = base_lon + (x * 0.006) if lon is None else float(lon)
+
         self.nodes[node_id] = {
             "name": name,
             "x": float(x),
             "y": float(y),
+            "lat": calc_lat,
+            "lon": calc_lon,
             "type": node_type
         }
         if node_id not in self.adj:
@@ -284,17 +293,96 @@ class RoadNetwork:
         return net
 
     @classmethod
+    def create_vector_city_network(cls) -> "RoadNetwork":
+        """
+        Creates a road network aligned with the vector street & river map graphic background.
+        Uses data/sample_maps/vector_city_map.png as background map graphic overlay.
+        """
+        net = cls()
+        net.bg_image_path = "data/sample_maps/vector_city_map.png"
+        
+        coords = {
+            "D-01": ("Southwest EMS Depot", 1.2, 1.5, "depot"),
+            "N-01": ("River West Crossing Junction", 2.5, 4.0, "intersection"),
+            "N-02": ("North River Main Bridge", 4.5, 6.2, "bridge"),
+            "N-03": ("East Waterfront Expressway", 8.2, 8.5, "intersection"),
+            "N-04": ("Central Rotary Plaza (Incident)", 5.5, 5.0, "incident_zone"),
+            "N-05": ("South River Outer Bridge", 2.0, 7.0, "bridge"),
+            "N-06": ("Commercial District North", 7.0, 6.5, "intersection"),
+            "N-07": ("East Suburb Ring Junction", 8.5, 4.5, "intersection"),
+            "N-08": ("South Boulevard Intersection", 3.5, 2.5, "intersection"),
+            "H-01": ("City Emergency Medical Trauma Center", 9.0, 2.0, "hospital"),
+            "H-02": ("North Memorial Health Hub", 7.5, 9.2, "hospital"),
+        }
+
+        for nid, (name, x, y, ntype) in coords.items():
+            net.add_node(nid, name, x, y, ntype)
+
+        edges = [
+            ("D-01", "N-08", 1.8, 40.0),
+            ("N-08", "N-01", 2.0, 45.0),
+            ("N-01", "N-05", 3.2, 35.0),
+            ("N-05", "N-02", 2.8, 50.0),
+            ("N-01", "N-04", 3.1, 40.0),
+            ("N-04", "N-02", 1.8, 45.0),
+            ("N-02", "N-06", 2.6, 50.0),
+            ("N-06", "N-03", 2.2, 45.0),
+            ("N-03", "H-02", 1.2, 40.0),
+            ("N-04", "N-06", 2.0, 45.0),
+            ("N-04", "N-07", 3.2, 50.0),
+            ("N-07", "H-01", 2.6, 55.0),
+            ("N-08", "N-04", 3.0, 40.0),
+            ("N-08", "H-01", 5.5, 60.0),
+        ]
+
+        for u, v, dist, speed in edges:
+            net.add_edge(u, v, dist, speed)
+
+        return net
+
+    @classmethod
     def get_available_presets(cls) -> Dict[str, str]:
         """Returns map preset keys and human-readable names."""
         return {
-            "city_grid": "Tactical City Grid Map (16 Nodes)",
-            "katpadi_vellore": "Katpadi / Vellore Regional Road Map (11 Nodes)"
+            "vector_city_map": "🗺️ Vector Street & River Map (Graphic Overlay)",
+            "katpadi_vellore": "📍 Katpadi / Vellore Regional Road Map (11 Nodes)",
+            "city_grid": "📐 Tactical City Grid Map (16 Nodes)",
+            "custom_upload": "📁 Custom Uploaded / User-Defined Road Map"
         }
 
     @classmethod
     def create_from_preset(cls, preset_key: str) -> "RoadNetwork":
         """Factory method to instantiate a road network by preset key."""
-        if preset_key == "katpadi_vellore":
+        if preset_key == "vector_city_map":
+            return cls.create_vector_city_network()
+        elif preset_key == "katpadi_vellore":
             return cls.create_katpadi_vellore_network()
         return cls.create_default_city_grid()
+
+    @classmethod
+    def from_json_string(cls, json_str: str) -> "RoadNetwork":
+        """Parses a custom user-uploaded map JSON string."""
+        data = json.loads(json_str)
+        return cls.from_dict(data)
+
+    @classmethod
+    def export_sample_map_template(cls) -> str:
+        """Generates a sample map JSON template for users to create any custom map network."""
+        sample_map = {
+            "nodes": {
+                "START-01": {"name": "Response Depot Alpha", "x": 0.0, "y": 0.0, "type": "depot"},
+                "INT-01": {"name": "North Junction", "x": 2.0, "y": 3.0, "type": "intersection"},
+                "INT-02": ("East Bypass"),
+                "INT-02": {"name": "East Bypass", "x": 5.0, "y": 3.0, "type": "intersection"},
+                "HOSP-01": {"name": "Central Emergency Facility", "x": 7.0, "y": 0.0, "type": "hospital"}
+            },
+            "edges": [
+                {"u": "START-01", "v": "INT-01", "distance_km": 3.6, "base_speed_kmh": 45.0},
+                {"u": "INT-01", "v": "INT-02", "distance_km": 3.0, "base_speed_kmh": 40.0},
+                {"u": "INT-02", "v": "HOSP-01", "distance_km": 3.6, "base_speed_kmh": 50.0},
+                {"u": "START-01", "v": "HOSP-01", "distance_km": 7.0, "base_speed_kmh": 60.0}
+            ]
+        }
+        return json.dumps(sample_map, indent=2)
+
 

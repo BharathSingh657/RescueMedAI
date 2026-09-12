@@ -28,7 +28,30 @@ def render_routing_tab():
         key="active_map_preset_select"
     )
 
-    if st.session_state.get("current_map_preset") != selected_preset_key:
+    if selected_preset_key == "custom_upload":
+        st.info("📁 **Custom Road Map Mode**: Upload any JSON map specification file containing custom nodes, intersections, and road coordinates.")
+        c_file = st.file_uploader("Upload Custom Map JSON Specification:", type=["json"])
+        if c_file is not None:
+            try:
+                json_content = c_file.read().decode("utf-8")
+                custom_net = RoadNetwork.from_json_string(json_content)
+                st.session_state.graph = custom_net
+                st.session_state.current_map_preset = "custom_upload"
+                nodes_list = list(custom_net.nodes.keys())
+                state.incident_node = nodes_list[0]
+                state.destination_node = nodes_list[-1]
+                state.selected_route = a_star_search(custom_net, state.incident_node, state.destination_node)
+                st.success(f"Loaded custom map with {len(custom_net.nodes)} nodes!")
+            except Exception as e:
+                st.error(f"Invalid Map Specification: {e}")
+
+        st.download_button(
+            "📥 Download Custom Map JSON Template",
+            data=RoadNetwork.export_sample_map_template(),
+            file_name="sample_custom_map.json",
+            mime="application/json"
+        )
+    elif st.session_state.get("current_map_preset") != selected_preset_key:
         st.session_state.graph = RoadNetwork.create_from_preset(selected_preset_key)
         st.session_state.current_map_preset = selected_preset_key
         # Update incident & goal node if needed
