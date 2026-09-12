@@ -1,0 +1,101 @@
+{
+  "scenarios": [
+    {
+      "id": "SCENARIO-EQ-01",
+      "title": "Scenario 1: Urban Earthquake & Structural Collapse",
+      "disaster_type": "Earthquake",
+      "location_name": "West Market Square (Sector 4)",
+      "incident_node": "N-04",
+      "target_hospital": "H-01",
+      "blocked_edges": [
+        ["N-04", "N-05"],
+        ["N-02", "N-03"]
+      ],
+      "hazard_edges": {
+        "N-01,N-05": 1.4,
+        "N-05,N-09": 1.2
+      },
+      "image_file": "earthquake_collapse.jpg",
+      "benchmark_vision_annotations": [
+        {"label": "damaged_building", "confidence": 0.94, "bbox": [50, 40, 320, 240], "details": "Multi-story collapsed commercial facade"},
+        {"label": "damaged_building", "confidence": 0.89, "bbox": [340, 60, 580, 260], "details": "Partial roof collapse and masonry debris"},
+        {"label": "blocked_road", "confidence": 0.92, "bbox": [100, 280, 520, 420], "details": "Main street impassable due to concrete rubble"},
+        {"label": "fire_indicator", "confidence": 0.78, "bbox": [420, 110, 490, 180], "details": "Localized secondary gas pipe ignition"}
+      ],
+      "default_patient": {
+        "patient_id": "PT-EQ-401",
+        "age": 36,
+        "systolic_bp": 78,
+        "diastolic_bp": 48,
+        "spo2": 85,
+        "heart_rate": 138,
+        "respiratory_rate": 28,
+        "consciousness": "Pain",
+        "symptoms": ["Massive External Bleeding", "Penetrating Chest Trauma"],
+        "visible_trauma": "Crushed lower limb and open chest wound",
+        "ambulatory": false
+      }
+    },
+    {
+      "id": "SCENARIO-FL-02",
+      "title": "Scenario 2: Flash Flood & Arterial Submersion",
+      "disaster_type": "Flood",
+      "location_name": "Southwest Industrial Basin (Sector 8)",
+      "incident_node": "N-08",
+      "target_hospital": "H-02",
+      "blocked_edges": [
+        ["N-08", "N-11"]
+      ],
+      "hazard_edges": {
+        "N-08,N-09": 5.0,
+        "N-09,N-12": 1.5
+      },
+      "image_file": "flash_flood.jpg",
+      "benchmark_vision_annotations": [
+        {"label": "flood_inundation", "confidence": 0.96, "bbox": [0, 160, 620, 440], "details": "Rising flood water submerging underpass and roadway"},
+        {"label": "blocked_road", "confidence": 0.93, "bbox": [60, 220, 580, 390], "details": "Vehicles stranded in deep standing flood water"},
+        {"label": "damaged_building", "confidence": 0.72, "bbox": [80, 50, 280, 180], "details": "Basement flooding and perimeter wall damage"}
+      ],
+      "default_patient": {
+        "patient_id": "PT-FL-202",
+        "age": 54,
+        "systolic_bp": 108,
+        "diastolic_bp": 70,
+        "spo2": 95,
+        "heart_rate": 94,
+        "respiratory_rate": 20,
+        "consciousness": "Alert",
+        "symptoms": ["Suspected Limb Fracture"],
+        "visible_trauma": "Hypothermia and swollen left ankle deformity",
+        "ambulatory": false
+      }
+    },
+    {
+      "id": "SCENARIO-FR-03",
+      "title": "Scenario 3: Minor Incident & Low Hazard",
+      "disaster_type": "Minor Incident",
+      "location_name": "East Commercial Corridor (Sector 6)",
+      "incident_node": "N-06",
+      "target_hospital": "H-03",
+      "blocked_edges": [],
+      "hazard_edges": {},
+      "image_file": "clear_normal.jpg",
+      "benchmark_vision_annotations": [
+        {"label": "clear_terrain", "confidence": 0.95, "bbox": null, "details": "Infrastructure fully intact; minimal surface dust"}
+      ],
+      "default_patient": {
+        "patient_id": "PT-FR-103",
+        "age": 25,
+        "systolic_bp": 120,
+        "diastolic_bp": 78,
+        "spo2": 97,
+        "heart_rate": 84,
+        "respiratory_rate": 16,
+        "consciousness": "Alert",
+        "symptoms": ["Minor arm abrasion"],
+        "visible_trauma": "Superficial 1st degree burn on forearm",
+        "ambulatory": true
+      }
+    }
+  ]
+}

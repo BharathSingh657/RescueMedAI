@@ -1,0 +1,118 @@
+{
+  "patients": [
+    {
+      "case_id": "CASE-CRIT-01",
+      "category": "Critical Presentation",
+      "expected_triage": "RED",
+      "expected_condition": "Hypovolemic / Hemorrhagic Shock",
+      "data": {
+        "patient_id": "PT-BENCH-01",
+        "age": 32,
+        "systolic_bp": 74,
+        "diastolic_bp": 46,
+        "spo2": 88,
+        "heart_rate": 142,
+        "respiratory_rate": 30,
+        "consciousness": "Voice",
+        "symptoms": ["Massive External Bleeding"],
+        "visible_trauma": "Severe compound femur fracture with arterial pulsatile bleed",
+        "ambulatory": false
+      }
+    },
+    {
+      "case_id": "CASE-CRIT-02",
+      "category": "Critical Presentation",
+      "expected_triage": "RED",
+      "expected_condition": "Tension Pneumothorax / Respiratory Failure",
+      "data": {
+        "patient_id": "PT-BENCH-02",
+        "age": 45,
+        "systolic_bp": 98,
+        "diastolic_bp": 64,
+        "spo2": 82,
+        "heart_rate": 128,
+        "respiratory_rate": 34,
+        "consciousness": "Alert",
+        "symptoms": ["Penetrating Chest Trauma", "Severe shortness of breath"],
+        "visible_trauma": "Puncture wound right thoracic wall with tracheal deviation",
+        "ambulatory": false
+      }
+    },
+    {
+      "case_id": "CASE-CRIT-03",
+      "category": "Critical Presentation",
+      "expected_triage": "RED",
+      "expected_condition": "Severe Traumatic Brain Injury",
+      "data": {
+        "patient_id": "PT-BENCH-03",
+        "age": 58,
+        "systolic_bp": 145,
+        "diastolic_bp": 90,
+        "spo2": 93,
+        "heart_rate": 48,
+        "respiratory_rate": 10,
+        "consciousness": "Unresponsive",
+        "symptoms": ["Altered mental status", "Severe head impact"],
+        "visible_trauma": "Depressed parietal skull fracture with racoon eyes",
+        "ambulatory": false
+      }
+    },
+    {
+      "case_id": "CASE-URG-04",
+      "category": "Urgent Presentation",
+      "expected_triage": "YELLOW",
+      "expected_condition": "Stable Trauma / Minor Injury",
+      "data": {
+        "patient_id": "PT-BENCH-04",
+        "age": 29,
+        "systolic_bp": 114,
+        "diastolic_bp": 72,
+        "spo2": 96,
+        "heart_rate": 98,
+        "respiratory_rate": 20,
+        "consciousness": "Alert",
+        "symptoms": ["Suspected Limb Fracture"],
+        "visible_trauma": "Forearm deformity, intact distal pulse and sensation",
+        "ambulatory": false
+      }
+    },
+    {
+      "case_id": "CASE-URG-05",
+      "category": "Urgent Presentation",
+      "expected_triage": "YELLOW",
+      "expected_condition": "Burn Shock / Inhalation Injury",
+      "data": {
+        "patient_id": "PT-BENCH-05",
+        "age": 41,
+        "systolic_bp": 96,
+        "diastolic_bp": 62,
+        "spo2": 91,
+        "heart_rate": 112,
+        "respiratory_rate": 22,
+        "consciousness": "Alert",
+        "symptoms": ["Moderate Burns (<20%)"],
+        "visible_trauma": "Second degree burns to bilateral lower legs",
+        "ambulatory": false
+      }
+    },
+    {
+      "case_id": "CASE-STB-06",
+      "category": "Stable Presentation",
+      "expected_triage": "GREEN",
+      "expected_condition": "Stable Trauma / Minor Injury",
+      "data": {
+        "patient_id": "PT-BENCH-06",
+        "age": 21,
+        "systolic_bp": 122,
+        "diastolic_bp": 78,
+        "spo2": 98,
+        "heart_rate": 70,
+        "respiratory_rate": 16,
+        "consciousness": "Alert",
+        "symptoms": ["Minor arm abrasion"],
+        "visible_trauma": "Superficial scratches on forearm and hands",
+        "ambulatory": true
+      }
+    }
+  ]
+}
