@@ -116,3 +116,41 @@ def test_katpadi_vellore_map_routing():
     assert ("K-06", "K-05") not in zip(reroute.path, reroute.path[1:])
 
 
+def test_chatgpt_json_map_parsing():
+    chatgpt_json = """
+    {
+      "map_name": "RescueMedAI Prototype Map",
+      "nodes": [
+        {"id": "N1", "x": 100, "y": 100},
+        {"id": "N2", "x": 250, "y": 100},
+        {"id": "N3", "x": 400, "y": 100},
+        {"id": "N4", "x": 100, "y": 250},
+        {"id": "N5", "x": 250, "y": 250},
+        {"id": "N6", "x": 400, "y": 250}
+      ],
+      "roads": [
+        {"id": "R1", "from": "N1", "to": "N2", "distance": 150},
+        {"id": "R2", "from": "N2", "to": "N3", "distance": 150},
+        {"id": "R3", "from": "N1", "to": "N4", "distance": 150},
+        {"id": "R4", "from": "N2", "to": "N5", "distance": 150},
+        {"id": "R5", "from": "N3", "to": "N6", "distance": 150}
+      ]
+    }
+    """
+    net = RoadNetwork.from_json_string(chatgpt_json)
+    assert len(net.nodes) == 6
+    assert "N1" in net.nodes
+    assert "N6" in net.nodes
+    
+    # Verify coordinates normalized to 0..10 grid
+    assert net.nodes["N1"]["x"] == 0.0
+    assert net.nodes["N6"]["x"] == 10.0
+
+    # Verify A* search works on uploaded ChatGPT map
+    route = a_star_search(net, "N1", "N6")
+    assert route.path
+    assert route.path[0] == "N1"
+    assert route.path[-1] == "N6"
+
+
+

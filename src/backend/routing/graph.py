@@ -145,19 +145,79 @@ class RoadNetwork:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RoadNetwork":
+        """
+        Robustly parses ANY JSON road map specification.
+        Handles list or dict nodes, 'edges' or 'roads' or 'links', flexible key names ('from'/'to', 'u'/'v', 'distance'),
+        and automatically normalizes coordinate scales.
+        """
         net = cls()
-        for node_id, node_info in data["nodes"].items():
-            net.add_node(node_id, node_info["name"], node_info["x"], node_info["y"], node_info.get("type", "intersection"))
-        for edge in data["edges"]:
-            net.add_edge(
-                edge["u"],
-                edge["v"],
-                edge["distance_km"],
-                edge.get("base_speed_kmh", 40.0),
-                edge.get("hazard_weight", 0.0),
-                edge.get("is_blocked", False),
-                bidirectional=True
-            )
+        
+        # 1. Parse Nodes
+        raw_nodes = data.get("nodes", {})
+        node_records = []
+        
+        if isinstance(raw_nodes, dict):
+            for nid, info in raw_nodes.items():
+                if isinstance(info, dict):
+                    node_records.append({
+                        "id": str(nid),
+                        "name": str(info.get("name") or info.get("label") or nid),
+                        "x": float(info.get("x", 0.0)),
+                        "y": float(info.get("y", 0.0)),
+                        "type": str(info.get("type", "intersection")),
+                        "lat": info.get("lat"),
+                        "lon": info.get("lon")
+                    })
+        elif isinstance(raw_nodes, list):
+            for idx, item in enumerate(raw_nodes):
+                if isinstance(item, dict):
+                    nid = str(item.get("id") or item.get("name") or item.get("node_id") or f"N{idx+1}")
+                    name = str(item.get("name") or item.get("label") or nid)
+                    node_records.append({
+                        "id": nid,
+                        "name": name,
+                        "x": float(item.get("x", 0.0)),
+                        "y": float(item.get("y", 0.0)),
+                        "type": str(item.get("type") or ("depot" if idx == 0 else ("hospital" if idx == len(raw_nodes) - 1 else "intersection"))),
+                        "lat": item.get("lat"),
+                        "lon": item.get("lon")
+                    })
+
+        # Normalize x, y coordinates to 0..10 grid if values are large pixel offsets (> 20)
+        xs = [n["x"] for n in node_records]
+        ys = [n["y"] for n in node_records]
+        
+        max_x, min_x = (max(xs), min(xs)) if xs else (10.0, 0.0)
+        max_y, min_y = (max(ys), min(ys)) if ys else (10.0, 0.0)
+        range_x = (max_x - min_x) if (max_x - min_x) > 0 else 1.0
+        range_y = (max_y - min_y) if (max_y - min_y) > 0 else 1.0
+
+        for n in node_records:
+            if max_x > 20.0 or max_y > 20.0:
+                norm_x = round(((n["x"] - min_x) / range_x) * 10.0, 2)
+                norm_y = round(((n["y"] - min_y) / range_y) * 10.0, 2)
+            else:
+                norm_x, norm_y = n["x"], n["y"]
+                
+            net.add_node(n["id"], n["name"], norm_x, norm_y, n["type"], lat=n["lat"], lon=n["lon"])
+
+        # 2. Parse Edges / Roads / Links
+        raw_edges = data.get("edges") or data.get("roads") or data.get("links") or data.get("connections") or []
+        for edge in raw_edges:
+            if isinstance(edge, dict):
+                u = str(edge.get("u") or edge.get("from") or edge.get("source") or edge.get("start") or "")
+                v = str(edge.get("v") or edge.get("to") or edge.get("target") or edge.get("end") or "")
+                if u and v and u in net.nodes and v in net.nodes:
+                    dist = float(edge.get("distance_km") or edge.get("distance") or edge.get("length") or edge.get("cost") or 2.0)
+                    speed = float(edge.get("base_speed_kmh") or edge.get("speed") or edge.get("max_speed") or 40.0)
+                    hazard = float(edge.get("hazard_weight") or edge.get("hazard") or 0.0)
+                    blocked = bool(edge.get("is_blocked") or edge.get("blocked") or False)
+                    net.add_edge(u, v, dist, speed, hazard, blocked, bidirectional=True)
+
+        # Set optional background image path
+        if data.get("bg_image_path"):
+            net.bg_image_path = data["bg_image_path"]
+
         return net
 
     @classmethod
