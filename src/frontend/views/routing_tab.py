@@ -32,18 +32,20 @@ def render_routing_tab():
         st.info("📁 **Custom Road Map Mode**: Upload any JSON map specification file containing custom nodes, intersections, and road coordinates.")
         c_file = st.file_uploader("Upload Custom Map JSON Specification:", type=["json"])
         if c_file is not None:
-            try:
-                json_content = c_file.read().decode("utf-8")
-                custom_net = RoadNetwork.from_json_string(json_content)
-                st.session_state.graph = custom_net
-                st.session_state.current_map_preset = "custom_upload"
-                nodes_list = list(custom_net.nodes.keys())
-                state.incident_node = nodes_list[0]
-                state.destination_node = nodes_list[-1]
-                state.selected_route = a_star_search(custom_net, state.incident_node, state.destination_node)
-                st.success(f"Loaded custom map with {len(custom_net.nodes)} nodes!")
-            except Exception as e:
-                st.error(f"Invalid Map Specification: {e}")
+            if st.session_state.get("last_uploaded_map_file") != c_file.name:
+                try:
+                    json_content = c_file.read().decode("utf-8")
+                    custom_net = RoadNetwork.from_json_string(json_content)
+                    st.session_state.graph = custom_net
+                    st.session_state.current_map_preset = "custom_upload"
+                    st.session_state["last_uploaded_map_file"] = c_file.name
+                    nodes_list = list(custom_net.nodes.keys())
+                    state.incident_node = nodes_list[0]
+                    state.destination_node = nodes_list[-1]
+                    state.selected_route = a_star_search(custom_net, state.incident_node, state.destination_node)
+                    st.success(f"Loaded custom map with {len(custom_net.nodes)} nodes!")
+                except Exception as e:
+                    st.error(f"Invalid Map Specification: {e}")
 
         st.download_button(
             "📥 Download Custom Map JSON Template",
@@ -77,14 +79,35 @@ def render_routing_tab():
 
         # Dynamic Road Modification Controls
         with st.expander("🚧 Interactive Road Blockage / Hazard Rerouting Simulator"):
-            st.markdown("Select an edge to toggle road closure and watch A* dynamically reroute:")
+            st.markdown("##### 📍 Incident Origin & Destination Selection")
+            nodes_list = list(st.session_state.graph.nodes.keys())
+            node_names = [f"{nid} ({st.session_state.graph.nodes[nid]['name']})" for nid in nodes_list]
+            
+            c_n1, c_n2 = st.columns(2)
+            cur_start_idx = nodes_list.index(state.incident_node) if state.incident_node in nodes_list else 0
+            cur_goal_idx = nodes_list.index(state.destination_node) if state.destination_node in nodes_list else (len(nodes_list) - 1)
+            
+            sel_start_idx = c_n1.selectbox("Disaster Incident Location (Start):", range(len(nodes_list)), format_func=lambda i: node_names[i], index=cur_start_idx, key="sel_start_node")
+            sel_goal_idx = c_n2.selectbox("Target Emergency Facility (Goal):", range(len(nodes_list)), format_func=lambda i: node_names[i], index=cur_goal_idx, key="sel_goal_node")
+
+            new_start_node = nodes_list[sel_start_idx]
+            new_goal_node = nodes_list[sel_goal_idx]
+            
+            if new_start_node != state.incident_node or new_goal_node != state.destination_node:
+                state.incident_node = new_start_node
+                state.destination_node = new_goal_node
+                state.selected_route = a_star_search(st.session_state.graph, state.incident_node, state.destination_node)
+                st.rerun()
+
+            st.markdown("---")
+            st.markdown("##### 🛑 Road Blockage / Closure Simulator")
             edge_list = [
                 f"{u} - {v}"
                 for u in st.session_state.graph.adj
                 for v in st.session_state.graph.adj[u]
                 if u < v
             ]
-            selected_edge_str = st.selectbox("Select Road Segment:", edge_list)
+            selected_edge_str = st.selectbox("Select Road Segment to Toggle Closure:", edge_list)
             u_sel, v_sel = selected_edge_str.split(" - ")
             current_blocked = st.session_state.graph.adj[u_sel][v_sel]["is_blocked"]
 
