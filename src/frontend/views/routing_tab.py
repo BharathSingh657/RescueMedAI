@@ -6,6 +6,7 @@ and comparative search algorithm benchmarks.
 import streamlit as st
 import pandas as pd
 
+from src.backend.routing.graph import RoadNetwork
 from src.backend.routing.search import a_star_search
 from src.backend.routing.benchmark import RoutingBenchmarkEngine
 from src.frontend.components.map_view import render_road_network_figure
@@ -16,6 +17,28 @@ def render_routing_tab():
 
     st.subheader("Stage 3: Dynamic Hazard-Weighted Road Graph & A* Route Planning")
     st.caption("A* algorithm evaluates f(n) = g(n) + h(n) with dynamic travel-time penalties and impassable closures.")
+
+    # Map Preset Selector (For Map Developer & Prototype Simulation)
+    presets = RoadNetwork.get_available_presets()
+    preset_keys = list(presets.keys())
+    selected_preset_key = st.selectbox(
+        "🗺️ Select Active Regional Road Map Network:",
+        preset_keys,
+        format_func=lambda k: presets[k],
+        key="active_map_preset_select"
+    )
+
+    if st.session_state.get("current_map_preset") != selected_preset_key:
+        st.session_state.graph = RoadNetwork.create_from_preset(selected_preset_key)
+        st.session_state.current_map_preset = selected_preset_key
+        # Update incident & goal node if needed
+        nodes_list = list(st.session_state.graph.nodes.keys())
+        if state.incident_node not in nodes_list:
+            state.incident_node = nodes_list[1] if len(nodes_list) > 1 else nodes_list[0]
+        if state.destination_node not in nodes_list:
+            state.destination_node = "H-01" if "H-01" in nodes_list else nodes_list[-1]
+        state.selected_route = a_star_search(st.session_state.graph, state.incident_node, state.destination_node)
+        st.rerun()
 
     col_map, col_search = st.columns([1.25, 1.0])
 

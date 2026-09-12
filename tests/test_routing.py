@@ -92,3 +92,27 @@ def test_safest_route_differs_from_shortest_under_hazard():
     assert cmp["safest_route"].distance_km >= cmp["shortest_route"].distance_km
     assert cmp["risk_cost_saved_min"] > 0
 
+
+def test_katpadi_vellore_map_routing():
+    presets = RoadNetwork.get_available_presets()
+    assert "katpadi_vellore" in presets
+
+    net = RoadNetwork.create_from_preset("katpadi_vellore")
+    assert "K-01" in net.nodes
+    assert "H-01" in net.nodes
+
+    # Route from Depot D-01 to Government Hospital H-01
+    route = a_star_search(net, "D-01", "H-01")
+    assert route.path
+    assert route.path[0] == "D-01"
+    assert route.path[-1] == "H-01"
+    assert route.cost > 0.0
+
+    # Block direct CM John St -> Vallimalai Rd corridor (K-05 -> K-06)
+    net.set_edge_status("K-05", "K-06", is_blocked=True)
+    reroute = a_star_search(net, "D-01", "H-01")
+    assert reroute.path
+    assert ("K-05", "K-06") not in zip(reroute.path, reroute.path[1:])
+    assert ("K-06", "K-05") not in zip(reroute.path, reroute.path[1:])
+
+

@@ -236,3 +236,65 @@ class RoadNetwork:
             net.add_edge(u, v, dist, speed)
 
         return net
+
+    @classmethod
+    def create_katpadi_vellore_network(cls) -> "RoadNetwork":
+        """
+        Creates a realistic Katpadi / Vellore Regional road network map.
+        Based on real geographic corridors (Vallimalai Rd, Katpadi Main Rd, Chatram St, CM John St, etc.).
+        """
+        net = cls()
+        coords = {
+            "D-01": ("Katpadi Bus Stand EMS Depot", 0.0, 0.0, "depot"),
+            "K-01": ("Chatram Street Junction", 1.5, 1.2, "intersection"),
+            "K-02": ("Bajanai Koil St & Katpadi Main Rd", 2.5, 2.8, "intersection"),
+            "K-03": ("Sai Baba Temple Intersection", 2.8, 4.2, "intersection"),
+            "K-04": ("Fifth Avenue & Bernicepuram Ground", 4.0, 5.0, "intersection"),
+            "K-05": ("CM John Street Commercial Corridor", 5.2, 3.8, "intersection"),
+            "K-06": ("Vallimalai Road Main Arterial", 6.0, 4.5, "intersection"),
+            "K-07": ("Jothis College of Arts & Science", 4.5, 1.5, "intersection"),
+            "K-08": ("New Gate Church Junction", 5.8, 1.2, "intersection"),
+            "H-01": ("Vellore Regional Government Trauma Center", 7.2, 5.2, "hospital"),
+            "H-02": ("Katpadi Community Medical Hub", 3.5, 6.0, "hospital"),
+        }
+
+        for nid, (name, x, y, ntype) in coords.items():
+            net.add_node(nid, name, x, y, ntype)
+
+        edges = [
+            ("D-01", "K-01", 1.5, 40.0),
+            ("K-01", "K-02", 1.2, 35.0),
+            ("K-02", "K-03", 1.5, 45.0),
+            ("K-03", "K-04", 1.8, 40.0),
+            ("K-04", "K-05", 1.4, 35.0),
+            ("K-05", "K-06", 1.0, 50.0),
+            ("K-06", "H-01", 1.5, 55.0),
+            ("K-01", "K-07", 2.2, 40.0),
+            ("K-07", "K-08", 1.3, 45.0),
+            ("K-08", "K-06", 1.6, 50.0),
+            ("K-03", "H-02", 1.9, 40.0),
+            ("K-02", "K-05", 2.1, 40.0),
+            ("D-01", "K-07", 3.0, 50.0),
+            ("K-04", "H-01", 3.2, 55.0),
+        ]
+
+        for u, v, dist, speed in edges:
+            net.add_edge(u, v, dist, speed)
+
+        return net
+
+    @classmethod
+    def get_available_presets(cls) -> Dict[str, str]:
+        """Returns map preset keys and human-readable names."""
+        return {
+            "city_grid": "Tactical City Grid Map (16 Nodes)",
+            "katpadi_vellore": "Katpadi / Vellore Regional Road Map (11 Nodes)"
+        }
+
+    @classmethod
+    def create_from_preset(cls, preset_key: str) -> "RoadNetwork":
+        """Factory method to instantiate a road network by preset key."""
+        if preset_key == "katpadi_vellore":
+            return cls.create_katpadi_vellore_network()
+        return cls.create_default_city_grid()
+
