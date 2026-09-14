@@ -1,6 +1,6 @@
 """
 RescueMedAI - Main Frontend App Launcher.
-Orchestrates Streamlit session state, sidebar command console, and tab view routing.
+Orchestrates Streamlit session state, command center header bar, and tab view routing.
 """
 import streamlit as st
 import json
@@ -21,7 +21,7 @@ from src.backend.triage.arbitrator import HybridTriageArbitrator
 from src.backend.hospital.notification import HospitalNotificationGenerator
 
 from src.frontend.components.styles import apply_custom_css
-from src.frontend.components.header import render_hero_header, render_safety_notice
+from src.frontend.components.header import render_hero_header, render_command_bar
 from src.frontend.views.vision_tab import render_vision_tab
 from src.frontend.views.routing_tab import render_routing_tab
 from src.frontend.views.allocation_tab import render_allocation_tab
@@ -86,9 +86,11 @@ def apply_scenario(scenario_dict):
     if os.path.exists(img_path):
         pil_img = Image.open(img_path)
         benchmark_anns = scenario_dict.get("benchmark_vision_annotations")
+        road_conds = DisasterVisionDetector.assess_road_conditions(pil_img)
         detections = DisasterVisionDetector.detect_hazards(pil_img, benchmark_annotations=benchmark_anns)
+        state.road_conditions = road_conds
         state.detections = detections
-        state.severity = DisasterSeverityEstimator.estimate(detections)
+        state.severity = DisasterSeverityEstimator.estimate(detections, road_conds)
 
     # Ingest default patient
     p_data = scenario_dict.get("default_patient")
@@ -118,56 +120,9 @@ def main():
         apply_scenario(st.session_state.scenarios[0])
         st.session_state.scenario_initialized = True
 
-    # SIDEBAR: Operational Controls
-    with st.sidebar:
-        st.markdown("### 🎛️ Command Console")
-        scenario_titles = [s["title"] for s in st.session_state.scenarios]
-        selected_scenario_idx = st.selectbox(
-            "Select Disaster Incident Scenario:",
-            range(len(scenario_titles)),
-            format_func=lambda i: scenario_titles[i],
-            index=st.session_state.current_scenario_idx
-        )
-
-        if selected_scenario_idx != st.session_state.current_scenario_idx:
-            st.session_state.current_scenario_idx = selected_scenario_idx
-            apply_scenario(st.session_state.scenarios[selected_scenario_idx])
-            st.rerun()
-
-        if st.button("🔄 Reset / Reload Scenario State", use_container_width=True):
-            apply_scenario(st.session_state.scenarios[st.session_state.current_scenario_idx])
-            st.success("Incident State reloaded successfully.")
-            st.rerun()
-
-        st.markdown("---")
-        st.markdown("#### 📋 Incident Telemetry")
-        state = st.session_state.state
-
-        st.markdown(f"**Incident ID:** `{state.incident_id}`")
-        st.markdown(f"**Disaster Event:** {state.disaster_type}")
-        st.markdown(f"**Location:** {state.location_name} (`{state.incident_node}`)")
-        st.markdown(f"**Severity Level:** **{state.severity.label if state.severity else 'N/A'}**")
-
-        # Current Triage Badge
-        if state.triage:
-            p = state.triage.priority
-            badge_class = f"triage-badge-{p.lower()}"
-            st.markdown(f"""
-            <div style="margin: 8px 0;">
-                <span class="{badge_class}">{p} — {state.triage.priority_level}</span>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.markdown(f"**Target Hospital:** `{state.destination_node}`")
-        if state.resource_assignment:
-            st.markdown(f"**Assigned Transport:** `{state.resource_assignment.ambulance_id} ({state.resource_assignment.ambulance_type})`")
-
-        st.markdown("---")
-        st.caption("RescueMedAI • Autonomous & Decision Support Systems Project")
-
-    # MAIN INTERFACE
+    # COMMAND CENTER HEADER & SCENARIO CONTROL BAR
     render_hero_header()
-    render_safety_notice(MEDICAL_SAFETY_DISCLAIMER)
+    render_command_bar(apply_scenario)
 
     tabs = st.tabs([
         "🛰️ 1. Perception & Severity",

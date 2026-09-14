@@ -1,6 +1,11 @@
-import torch
-import torchvision
-import torchvision.models.segmentation as seg
+try:
+    import torch
+    import torchvision
+    import torchvision.models.segmentation as seg
+    HAS_TORCH = True
+except Exception:
+    HAS_TORCH = False
+
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import os
@@ -13,6 +18,8 @@ _PRETRAINED_SEG_MODEL = None
 
 def get_pretrained_segmentation_model():
     global _PRETRAINED_SEG_MODEL
+    if not HAS_TORCH:
+        return None
     if _PRETRAINED_SEG_MODEL is None:
         try:
             model = seg.lraspp_mobilenet_v3_large(weights=seg.LRASPP_MobileNet_V3_Large_Weights.DEFAULT)
@@ -20,9 +27,12 @@ def get_pretrained_segmentation_model():
             _PRETRAINED_SEG_MODEL = model
         except Exception as e:
             # Fallback model creation without downloading
-            model = seg.lraspp_mobilenet_v3_large(weights=None)
-            model.eval()
-            _PRETRAINED_SEG_MODEL = model
+            try:
+                model = seg.lraspp_mobilenet_v3_large(weights=None)
+                model.eval()
+                _PRETRAINED_SEG_MODEL = model
+            except Exception:
+                _PRETRAINED_SEG_MODEL = None
     return _PRETRAINED_SEG_MODEL
 
 
@@ -43,25 +53,33 @@ class DisasterVisionDetector:
         arr = np.array(rgb_img, dtype=np.float32)
         r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
 
+        pred_full = np.zeros((h, w), dtype=np.uint8)
+        probs = np.zeros((21, h, w), dtype=np.float32)
+
         # 1. Deep Learning Model Feature Map Inference
-        model = get_pretrained_segmentation_model()
-        tf = torchvision.transforms.Compose([
-            torchvision.transforms.Resize((256, 320)),
-            torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
-        t_img = tf(rgb_img).unsqueeze(0)
+        if HAS_TORCH:
+            try:
+                model = get_pretrained_segmentation_model()
+                if model is not None:
+                    tf = torchvision.transforms.Compose([
+                        torchvision.transforms.Resize((256, 320)),
+                        torchvision.transforms.ToTensor(),
+                        torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                    ])
+                    t_img = tf(rgb_img).unsqueeze(0)
 
-        with torch.no_grad():
-            output = model(t_img)['out']
-            # Convert model output logits to class probabilities via Softmax
-            probs = torch.softmax(output, dim=1).squeeze(0).numpy()
-            pred_classes = np.argmax(probs, axis=0)
+                    with torch.no_grad():
+                        output = model(t_img)['out']
+                        # Convert model output logits to class probabilities via Softmax
+                        probs = torch.softmax(output, dim=1).squeeze(0).numpy()
+                        pred_classes = np.argmax(probs, axis=0)
 
-        # Resize prediction mask back to image dimensions
-        pred_full = np.array(
-            Image.fromarray(pred_classes.astype(np.uint8)).resize((w, h), Image.NEAREST)
-        )
+                    # Resize prediction mask back to image dimensions
+                    pred_full = np.array(
+                        Image.fromarray(pred_classes.astype(np.uint8)).resize((w, h), Image.NEAREST)
+                    )
+            except Exception:
+                pass
 
         # 2. Structural Debris & Fracture Gradient Energy (Sobel Filter)
         gray = 0.2989 * r + 0.5870 * g + 0.1140 * b

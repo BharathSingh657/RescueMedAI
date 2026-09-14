@@ -1,16 +1,20 @@
 """
 Hospital Pre-Arrival Notification View (Tab 5).
-Displays standardized SBAR pre-arrival dispatch tickets and hospital preparedness directives.
+Displays standardized SBAR pre-arrival dispatch tickets, hospital preparedness directives,
+and exports professional PDF emergency reports.
 """
 import streamlit as st
 from src.backend.state import SIMULATED_DATA_NOTICE
+from src.backend.hospital.pdf_generator import HospitalPDFReportGenerator
 from src.frontend.components.header import render_simulation_notice
 
 
 def render_notification_tab():
     state = st.session_state.state
 
-    st.subheader("Stage 7: Receiving Emergency Department Pre-Arrival Console")
+    st.subheader("🏥 Receiving Emergency Department Pre-Arrival Console")
+    st.caption("Standardized SBAR / MIST pre-arrival dispatch tickets, facility preparedness directives, and professional PDF report generation.")
+    
     render_simulation_notice(SIMULATED_DATA_NOTICE)
 
     if state.hospital_notification:
@@ -31,13 +35,32 @@ def render_notification_tab():
                 st.markdown(f"☑️ **{item}**")
 
             st.markdown("---")
-            st.markdown("##### 📤 Dispatch Actions")
+            st.markdown("##### 📤 Professional Emergency Handoff Export")
+            
+            # PDF Report Export
+            try:
+                pdf_bytes = HospitalPDFReportGenerator.generate(state, notif)
+                st.download_button(
+                    label="📄 Download Professional Handoff Report (PDF)",
+                    data=pdf_bytes,
+                    file_name=f"handoff_{notif.case_id}.pdf",
+                    mime="application/pdf",
+                    type="primary",
+                    use_container_width=True
+                )
+            except Exception as e:
+                st.error(f"Error generating PDF report: {e}")
+
+            # Markdown Report Export
             st.download_button(
-                label="📥 Download Structured Handoff Report (Markdown)",
+                label="📥 Download Handoff Report (Markdown)",
                 data=notif.sbar_formatted_text,
                 file_name=f"handoff_{notif.case_id}.md",
                 mime="text/markdown",
                 use_container_width=True
             )
+
+            st.markdown("---")
+            st.markdown("##### 📡 Emergency Radio Broadcast Telemetry")
             if st.button("📢 Simulate Emergency Radio Broadcast Handoff", use_container_width=True):
                 st.toast(f"Handoff broadcast for {notif.case_id} transmitted to {notif.hospital_name}!", icon="🚑")

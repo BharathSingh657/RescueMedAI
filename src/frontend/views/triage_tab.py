@@ -1,7 +1,7 @@
 """
 Field Medical Triage View (Tab 4).
 Interactive responder vitals input form and hybrid AI decision support visualization
-(Rules + Bayesian probability distribution).
+(Deterministic Rules + Bayesian probability distribution).
 """
 import streamlit as st
 import pandas as pd
@@ -14,13 +14,15 @@ from src.frontend.components.header import render_safety_notice
 def render_triage_tab():
     state = st.session_state.state
 
-    st.subheader("Stage 5 & 6: Medical Decision Support Layer (Rules + Bayesian Inference)")
+    st.subheader("🩺 Field Medical Decision Support Layer (Rules + Bayesian Inference)")
+    st.caption("Hybrid Decision Support synthesizes deterministic START/SALT trauma safety rules with discrete Bayesian probability distributions.")
+
     render_safety_notice(MEDICAL_SAFETY_DISCLAIMER)
 
     tcol1, tcol2 = st.columns([1.1, 1.2])
 
     with tcol1:
-        st.markdown("##### 📝 Responder Patient Vitals Ingestion")
+        st.markdown("##### 📝 First Responder Field Vitals Ingestion")
         pt = state.patient or PatientRecord(
             patient_id="PT-DEFAULT", age=30, systolic_bp=110, diastolic_bp=70,
             spo2=96, heart_rate=80, respiratory_rate=18, consciousness="Alert"
@@ -73,12 +75,11 @@ def render_triage_tab():
                 )
                 state.patient = updated_patient
                 state.triage = st.session_state.arbitrator.arbitrate(updated_patient)
-                # Update downstream allocation & notification
                 state.resource_assignment = st.session_state.allocator.allocate_priority_aware(
                     state.incident_node, state.triage.priority, state.disaster_type
                 )
                 state.hospital_notification = HospitalNotificationGenerator.generate(state)
-                st.success("Triage decision and hospital dispatch updated.")
+                st.success("Field triage priority and receiving hospital dispatch updated.")
                 st.rerun()
 
     with tcol2:
@@ -98,9 +99,8 @@ def render_triage_tab():
             else:
                 st.info(f"💡 **Clinical Decision Rationale:** {tr.explanation}")
 
-            # Bayesian Probabilities
             st.markdown("##### 🎲 Bayesian Pathological Likelihood Distribution")
-            st.caption("Discrete Conditional Probability Table (CPT) inference under uncertain physiological signs:")
+            st.caption("Discrete Conditional Probability Table (CPT) inference under physiological uncertainty:")
 
             bayes = tr.bayesian_result
             probs_df = pd.DataFrame([
@@ -111,7 +111,6 @@ def render_triage_tab():
 
             st.caption(f"Shannon Entropy (Probabilistic Uncertainty): `{bayes.entropy:.3f} bits` | Top Indicated Condition: **{bayes.top_condition} ({bayes.top_probability:.1%})**")
 
-            # Rule Engine activations
             st.markdown("##### 📜 Activated Deterministic Safety Rules")
             if tr.rule_result.activated_rules:
                 for r in tr.rule_result.activated_rules:
