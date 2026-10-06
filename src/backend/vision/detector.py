@@ -398,17 +398,7 @@ class DisasterVisionDetector:
                     x2 = int(max(0, min(w, round(x_center + box_w / 2.0))))
                     y2 = int(max(0, min(h, round(y_center + box_h / 2.0))))
 
-                    cls_lower = raw_cls.lower()
-                    if any(k in cls_lower for k in ["road", "blocked", "blockage", "obstacle", "damaged road"]):
-                        sys_label = "blocked_road"
-                    elif any(k in cls_lower for k in ["fire", "smoke", "burn"]):
-                        sys_label = "fire_indicator"
-                    elif any(k in cls_lower for k in ["flood", "water", "inundation", "mud"]):
-                        sys_label = "flood_inundation"
-                    elif any(k in cls_lower for k in ["building", "structure", "rubble", "collapse", "damaged building"]):
-                        sys_label = "damaged_building"
-                    else:
-                        sys_label = cls_lower.replace(" ", "_")
+                    sys_label = raw_cls.lower().strip().replace(" ", "_")
 
                     rf_items.append(DetectionItem(
                         label=sys_label,
@@ -575,51 +565,88 @@ class DisasterVisionDetector:
     def draw_detection_overlay(pil_img: Image.Image, detections: List[DetectionItem]) -> Image.Image:
         """
         Renders high-tech tactical hazard bounding boxes with corner crosshairs, transparent fills,
-        and non-overlapping callout badges onto the image.
+        and non-overlapping callout badges onto the image for ALL hazard classes.
         """
         w, h = pil_img.size
         base_img = pil_img.copy().convert("RGBA")
 
-        # Semi-transparent overlay layer for box fills
         fill_overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
         draw_fill = ImageDraw.Draw(fill_overlay)
 
-        color_map = {
-            "damaged_building": (230, 57, 70),   # Crimson Red
-            "fire_indicator": (247, 127, 0),     # Glowing Orange
-            "blocked_road": (214, 40, 40),       # Deep Red
-            "flood_inundation": (0, 119, 182),   # Azure Blue
-            "clear_terrain": (42, 157, 143)      # Emerald Teal
+        KNOWN_COLORS = {
+            "damaged_building": (230, 57, 70),     # Crimson Red
+            "collapsed_building": (186, 24, 27),   # Deep Dark Red
+            "rubble_debris": (230, 81, 0),         # Burnt Orange
+            "landslide": (141, 110, 99),          # Earthy Brown
+            "blocked_road": (214, 40, 40),         # Heavy Red
+            "flood_inundation": (0, 119, 182),     # Azure Blue
+            "flooded_road": (0, 150, 199),        # Bright Water Blue
+            "fire_indicator": (247, 127, 0),       # Thermal Orange
+            "fire": (255, 109, 0),                 # Flame Orange
+            "smoke": (108, 117, 125),              # Slate Gray
+            "clear_terrain": (42, 157, 143)        # Emerald Teal
         }
 
-        emoji_map = {
-            "damaged_building": "🏚️",
-            "fire_indicator": "🔥",
-            "blocked_road": "🛑",
-            "flood_inundation": "🌊",
-            "clear_terrain": "✅"
-        }
+        def resolve_color(lbl: str) -> Tuple[int, int, int]:
+            clean = lbl.lower().strip().replace(" ", "_")
+            if clean in KNOWN_COLORS:
+                return KNOWN_COLORS[clean]
+            if any(k in clean for k in ["collapse", "building", "structure"]):
+                return (214, 40, 40)
+            if any(k in clean for k in ["rubble", "debris", "masonry"]):
+                return (230, 81, 0)
+            if any(k in clean for k in ["landslide", "mudslide"]):
+                return (141, 110, 99)
+            if any(k in clean for k in ["flood", "water", "inundation"]):
+                return (0, 119, 182)
+            if any(k in clean for k in ["fire", "flame", "burn"]):
+                return (247, 127, 0)
+            if any(k in clean for k in ["smoke", "plume"]):
+                return (108, 117, 125)
+            if any(k in clean for k in ["road", "blocked", "blockage"]):
+                return (214, 40, 40)
+            h_val = sum(ord(c) for c in clean)
+            return ((h_val * 67 + 120) % 200 + 40, (h_val * 31 + 50) % 180 + 30, (h_val * 97 + 80) % 200 + 40)
+
+        def resolve_emoji(lbl: str) -> str:
+            clean = lbl.lower().strip().replace("_", " ")
+            if any(k in clean for k in ["building", "structure", "collapse", "house", "roof"]):
+                return "🏚️"
+            if any(k in clean for k in ["rubble", "debris", "masonry", "rock"]):
+                return "🪨"
+            if any(k in clean for k in ["landslide", "mudslide", "earth"]):
+                return "⛰️"
+            if any(k in clean for k in ["road", "blocked", "blockage", "obstacle"]):
+                return "🛑"
+            if any(k in clean for k in ["flood", "water", "submerged", "inundation"]):
+                return "🌊"
+            if any(k in clean for k in ["fire", "flame", "burn", "thermal"]):
+                return "🔥"
+            if any(k in clean for k in ["smoke", "haze", "fume", "plume"]):
+                return "💨"
+            if any(k in clean for k in ["car", "vehicle", "truck", "bus"]):
+                return "🚗"
+            return "⚠️"
 
         # Step 1: Draw semi-transparent fills for bounding boxes
         for det in detections:
             if det.bounding_box:
                 x1, y1, x2, y2 = det.bounding_box
-                rgb = color_map.get(det.label, (230, 57, 70))
+                rgb = resolve_color(det.label)
                 draw_fill.rectangle([x1, y1, x2, y2], fill=(rgb[0], rgb[1], rgb[2], 40))
 
         combined = Image.alpha_composite(base_img, fill_overlay)
         draw = ImageDraw.Draw(combined)
 
         # Step 2: Draw crisp outer borders, tactical corner crosshairs, and callout badges
-        # Track label Y offsets to prevent text collision
         occupied_label_rects = []
 
         for det in detections:
             if det.bounding_box:
                 x1, y1, x2, y2 = det.bounding_box
-                rgb = color_map.get(det.label, (230, 57, 70))
+                rgb = resolve_color(det.label)
                 hex_color = f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
-                emoji = emoji_map.get(det.label, "⚠️")
+                emoji = resolve_emoji(det.label)
 
                 # Main bounding box rectangle
                 draw.rectangle([x1, y1, x2, y2], outline=hex_color, width=3)
@@ -627,16 +654,12 @@ class DisasterVisionDetector:
                 # Tactical corner ticks (crosshair styling)
                 corner_len = min(16, (x2 - x1) // 4, (y2 - y1) // 4)
                 if corner_len > 4:
-                    # Top-Left
                     draw.line([(x1, y1), (x1 + corner_len, y1)], fill="#FFFFFF", width=3)
                     draw.line([(x1, y1), (x1, y1 + corner_len)], fill="#FFFFFF", width=3)
-                    # Top-Right
                     draw.line([(x2, y1), (x2 - corner_len, y1)], fill="#FFFFFF", width=3)
                     draw.line([(x2, y1), (x2, y1 + corner_len)], fill="#FFFFFF", width=3)
-                    # Bottom-Left
                     draw.line([(x1, y2), (x1 + corner_len, y2)], fill="#FFFFFF", width=3)
                     draw.line([(x1, y2), (x1, y2 - corner_len)], fill="#FFFFFF", width=3)
-                    # Bottom-Right
                     draw.line([(x2, y2), (x2 - corner_len, y2)], fill="#FFFFFF", width=3)
                     draw.line([(x2, y2), (x2, y2 - corner_len)], fill="#FFFFFF", width=3)
 
@@ -646,12 +669,10 @@ class DisasterVisionDetector:
                 badge_w = len(lbl_text) * 7 + 14
                 badge_h = 22
 
-                # Calculate non-overlapping badge position
                 target_y = y1 - badge_h
                 if target_y < 0:
                     target_y = y1 + 4
 
-                # Avoid label overlap with previously drawn labels
                 for rx1, ry1, rx2, ry2 in occupied_label_rects:
                     if abs(target_y - ry1) < 20 and abs(x1 - rx1) < badge_w:
                         target_y = ry2 + 2
@@ -659,7 +680,6 @@ class DisasterVisionDetector:
                 badge_box = [x1, target_y, x1 + badge_w, target_y + badge_h]
                 occupied_label_rects.append(badge_box)
 
-                # Draw badge background pill and label text
                 draw.rectangle(badge_box, fill=hex_color)
                 draw.text((x1 + 6, target_y + 3), lbl_text, fill="white")
 

@@ -17,9 +17,18 @@ class DisasterSeverityEstimator:
         detections: List[DetectionItem],
         road_conditions: Optional[List[RoadConditionAssessment]] = None
     ) -> SeverityAssessment:
-        damaged_building_count = sum(1 for d in detections if d.label == "damaged_building")
-        blocked_road_count = sum(1 for d in detections if d.label in ["blocked_road", "flood_inundation"])
-        fire_detected = any(d.label == "fire_indicator" for d in detections)
+        damaged_building_count = sum(
+            1 for d in detections 
+            if any(k in d.label.lower().replace("_", " ") for k in ["building", "structure", "rubble", "collapse", "debris"])
+        )
+        blocked_road_count = sum(
+            1 for d in detections 
+            if any(k in d.label.lower().replace("_", " ") for k in ["road", "blocked", "blockage", "flood", "water", "landslide", "obstacle"])
+        )
+        fire_detected = any(
+            any(k in d.label.lower().replace("_", " ") for k in ["fire", "smoke", "flame", "thermal"]) 
+            for d in detections
+        )
 
         # If detailed road conditions are provided, supplement blocked count
         road_summary_parts = []

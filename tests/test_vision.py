@@ -15,7 +15,10 @@ def test_local_pixel_analysis_fire():
     img = Image.open(img_path)
 
     detections = DisasterVisionDetector.detect_hazards(img)
-    assert any(d.label in ["fire_indicator", "damaged_building", "blocked_road"] for d in detections)
+    assert any(
+        any(k in d.label.lower() for k in ["fire", "smoke", "building", "road", "rubble", "landslide"])
+        for d in detections
+    )
     assert all("PRETRAINED DEEP LEARNING" in d.source or "BENCHMARK" in d.source for d in detections)
 
 
