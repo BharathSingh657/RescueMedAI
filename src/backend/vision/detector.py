@@ -336,18 +336,18 @@ class DisasterVisionDetector:
         return road_assessments
 
     @staticmethod
-    def _detect_hazards_via_roboflow(pil_img: Image.Image) -> List[DetectionItem]:
+    def _detect_hazards_via_roboflow(pil_img: Image.Image) -> Tuple[List[DetectionItem], bool]:
         """
         Connects uploaded disaster imagery to the Roboflow Serverless Workflow API using
         ROBOFLOW_API_KEY and ROBOFLOW_WORKFLOW_URL from .env file.
-        Parses predictions and returns DetectionItem instances for system ingestion.
+        Returns (detections, api_success_flag).
         """
         load_dotenv()
         api_key = os.getenv("ROBOFLOW_API_KEY")
         workflow_url = os.getenv("ROBOFLOW_WORKFLOW_URL")
 
         if not api_key or not workflow_url:
-            return []
+            return [], False
 
         try:
             w, h = pil_img.size
@@ -365,14 +365,14 @@ class DisasterVisionDetector:
                 }
             }
 
-            res = requests.post(workflow_url, json=payload, timeout=8)
+            res = requests.post(workflow_url, json=payload, timeout=10)
             if res.status_code != 200:
-                return []
+                return [], False
 
             data = res.json()
             outputs = data.get("outputs", [])
-            if not outputs:
-                return []
+            if not isinstance(outputs, list) or len(outputs) == 0:
+                return [], True
 
             rf_items: List[DetectionItem] = []
 
@@ -384,6 +384,10 @@ class DisasterVisionDetector:
                     preds_list = predictions_obj
                 else:
                     preds_list = []
+                    for k, v in out.items():
+                        if isinstance(v, list) and len(v) > 0 and isinstance(v[0], dict) and ("class" in v[0] or "confidence" in v[0]):
+                            preds_list = v
+                            break
 
                 for pred in preds_list:
                     x_center = float(pred.get("x", 0))
@@ -408,9 +412,9 @@ class DisasterVisionDetector:
                         details=f"Roboflow Workflow prediction: '{raw_cls}' (confidence: {conf:.0%})"
                     ))
 
-            return rf_items
+            return rf_items, True
         except Exception:
-            return []
+            return [], False
 
     @staticmethod
     def detect_hazards(
@@ -418,12 +422,11 @@ class DisasterVisionDetector:
         benchmark_annotations: Optional[List[Dict[str, Any]]] = None
     ) -> List[DetectionItem]:
         """
-        Extracts high-precision spatial hazard bounding boxes using connected component clustering,
-        PyTorch MobileNetV3 segmentation, and Torchvision object detection.
+        Extracts high-precision spatial hazard bounding boxes using Roboflow Serverless Workflow API as primary engine,
+        with local connected component fallback only when API is unavailable.
         """
-        detections: List[DetectionItem] = []
-
         if benchmark_annotations:
+            detections: List[DetectionItem] = []
             for ann in benchmark_annotations:
                 detections.append(DetectionItem(
                     label=ann["label"],
@@ -435,9 +438,18 @@ class DisasterVisionDetector:
             return detections
 
         # 1. Attempt Roboflow Serverless Workflow API inference first
-        roboflow_dets = DisasterVisionDetector._detect_hazards_via_roboflow(pil_img)
-        if roboflow_dets:
-            return non_max_suppression_items(roboflow_dets, iou_threshold=0.35)
+        roboflow_dets, api_success = DisasterVisionDetector._detect_hazards_via_roboflow(pil_img)
+        if api_success:
+            if roboflow_dets:
+                return non_max_suppression_items(roboflow_dets, iou_threshold=0.35)
+            else:
+                return [DetectionItem(
+                    label="clear_terrain",
+                    confidence=0.95,
+                    bounding_box=None,
+                    source="ROBOFLOW WORKFLOW (rescuemedai-disaster-hazards)",
+                    details="Roboflow Workflow scan complete: 0 hazards detected in aerial scene."
+                )]
 
         seg = DisasterVisionDetector._run_deep_learning_segmentation(pil_img)
         w, h = seg["image_size"]
