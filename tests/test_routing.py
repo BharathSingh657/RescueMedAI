@@ -153,4 +153,37 @@ def test_chatgpt_json_map_parsing():
     assert route.path[-1] == "N6"
 
 
+def test_apply_vision_detections_blocks_edges():
+    from src.backend.state import DetectionItem
+
+    net = RoadNetwork.create_default_city_grid()
+    start = "N-04"
+    goal = "H-01"
+
+    # Baseline route before visual detection
+    base_res = a_star_search(net, start, goal)
+    assert base_res.path
+
+    # Simulate a computer vision detection of structural collapse right in the path
+    # Image size 1000x1000, detection around center
+    dets = [
+        DetectionItem(
+            label="blocked_road",
+            confidence=0.92,
+            bounding_box=[200, 450, 300, 550],  # intersects horizontal/vertical arterial
+            source="TEST"
+        )
+    ]
+    impacted = net.apply_vision_detections(dets, image_size=(1000, 1000))
+    assert len(impacted) > 0
+    assert any(item["status"] == "blocked" for item in impacted)
+
+    # Rerun A* and verify reroute
+    rerouted = a_star_search(net, start, goal)
+    assert rerouted.path
+    # Path is still valid and navigates safely
+    assert RoutingBenchmarkEngine.is_path_valid(net, rerouted.path)
+    assert rerouted.cost < float('inf')
+
+
 

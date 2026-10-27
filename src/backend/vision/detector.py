@@ -2,7 +2,7 @@
 HAS_TORCH = False
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 import os
 import io
 import base64
@@ -175,12 +175,12 @@ class DisasterVisionDetector:
         pure_foliage = (g > r * 1.25) & (g > b * 1.15) & (g > 60) & is_upper_region
 
         # 4. Floodwater / Mud Inundation Surface Mask (Captures all tan mudflows & water channels)
-        tan_mud = (r > 45) & (g > 30) & (b > 15) & (r > b * 1.04) & (g > b * 0.80) & (r > g * 0.90) & (edge < 38.0)
-        azure_water = (b > r * 1.02) & (b > 50) & (b < 235)
+        tan_mud = (r > 65) & (r < 175) & (g > 55) & (g < 155) & (b > 35) & (b < 125) & (r > b * 1.25) & (np.abs(r - g) < 22) & (edge < 10.0)
+        azure_water = (b > r * 1.14) & (b > g * 1.04) & (b > 60)
         flood_mask = (tan_mud | azure_water) & (~sky_mask) & (~pure_foliage)
 
         # 5. Structural Collapse & Rubble Mask (Captures torn roofs, masonry, shattered structures)
-        rubble_mask = (edge > 15.0) & (~flood_mask) & (~sky_mask) & (~pure_foliage)
+        rubble_mask = (edge > 18.0) & (~flood_mask) & (~sky_mask) & (~pure_foliage)
 
         # Fire / Thermal Heat Mask
         fire_mask = (r > 180) & (g > 80) & (b < 130) & (r > g * 1.10) & (~sky_mask)
@@ -350,9 +350,35 @@ class DisasterVisionDetector:
             return [], False
 
         try:
-            w, h = pil_img.size
+            # 1. Standardize orientation from EXIF (handles smartphone/WhatsApp rotated photos)
+            clean_img = ImageOps.exif_transpose(pil_img)
+            w, h = clean_img.size
+
+            # 2. Handle transparency if present to avoid dark artifacts
+            if clean_img.mode in ("RGBA", "LA") or (clean_img.mode == "P" and "transparency" in clean_img.info):
+                alpha = clean_img.convert("RGBA")
+                bg = Image.new("RGBA", alpha.size, (255, 255, 255))
+                clean_img = Image.alpha_composite(bg, alpha).convert("RGB")
+            else:
+                clean_img = clean_img.convert("RGB")
+
+            # 3. Scale safely for network transmission if photo is extremely large (e.g., >1600px)
+            # This prevents HTTP 413 (Payload Too Large) and network timeouts on high-res camera uploads.
+            max_dim = 1600
+            scale_x = 1.0
+            scale_y = 1.0
+            if max(w, h) > max_dim:
+                scale_ratio = max_dim / float(max(w, h))
+                send_w = max(1, int(w * scale_ratio))
+                send_h = max(1, int(h * scale_ratio))
+                send_img = clean_img.resize((send_w, send_h), Image.Resampling.LANCZOS)
+                scale_x = w / float(send_w)
+                scale_y = h / float(send_h)
+            else:
+                send_img = clean_img
+
             img_byte_arr = io.BytesIO()
-            pil_img.convert("RGB").save(img_byte_arr, format="JPEG")
+            send_img.save(img_byte_arr, format="JPEG", quality=90)
             img_b64 = base64.b64encode(img_byte_arr.getvalue()).decode("utf-8")
 
             payload = {
@@ -361,16 +387,19 @@ class DisasterVisionDetector:
                     "image": {
                         "type": "url",
                         "value": f"data:image/jpeg;base64,{img_b64}"
-                    }
+                    },
+                    "confidence": 0.30
                 }
             }
 
-            res = requests.post(workflow_url, json=payload, timeout=10)
+            res = requests.post(workflow_url, json=payload, timeout=30)
             if res.status_code != 200:
                 return [], False
 
             data = res.json()
             outputs = data.get("outputs", [])
+            if isinstance(outputs, dict):
+                outputs = [outputs]
             if not isinstance(outputs, list) or len(outputs) == 0:
                 return [], True
 
@@ -385,22 +414,50 @@ class DisasterVisionDetector:
                 else:
                     preds_list = []
                     for k, v in out.items():
-                        if isinstance(v, list) and len(v) > 0 and isinstance(v[0], dict) and ("class" in v[0] or "confidence" in v[0]):
+                        if isinstance(v, list) and len(v) > 0 and isinstance(v[0], dict) and ("class" in v[0] or "confidence" in v[0] or "class_name" in v[0]):
                             preds_list = v
                             break
 
                 for pred in preds_list:
-                    x_center = float(pred.get("x", 0))
-                    y_center = float(pred.get("y", 0))
-                    box_w = float(pred.get("width", 0))
-                    box_h = float(pred.get("height", 0))
                     conf = float(pred.get("confidence", 0.90))
-                    raw_cls = str(pred.get("class", "hazard")).strip()
+                    raw_cls = str(pred.get("class") or pred.get("class_name") or pred.get("label") or "hazard").strip()
 
-                    x1 = int(max(0, min(w, round(x_center - box_w / 2.0))))
-                    y1 = int(max(0, min(h, round(y_center - box_h / 2.0))))
-                    x2 = int(max(0, min(w, round(x_center + box_w / 2.0))))
-                    y2 = int(max(0, min(h, round(y_center + box_h / 2.0))))
+                    # Handle either center [x, y, w, h] or min/max corner formats
+                    if "x_min" in pred and "y_min" in pred:
+                        rx1 = float(pred["x_min"])
+                        ry1 = float(pred["y_min"])
+                        rx2 = float(pred["x_max"])
+                        ry2 = float(pred["y_max"])
+                    else:
+                        x_center = float(pred.get("x", 0))
+                        y_center = float(pred.get("y", 0))
+                        box_w = float(pred.get("width", 0))
+                        box_h = float(pred.get("height", 0))
+                        rx1 = x_center - box_w / 2.0
+                        ry1 = y_center - box_h / 2.0
+                        rx2 = x_center + box_w / 2.0
+                        ry2 = y_center + box_h / 2.0
+
+                    # Check if coordinates are normalized [0.0 - 1.0]
+                    if rx2 <= 1.0 and ry2 <= 1.0 and (w > 1 and h > 1):
+                        rx1 *= w
+                        rx2 *= w
+                        ry1 *= h
+                        ry2 *= h
+                    else:
+                        # Rescale from send dimensions back to original user image size
+                        rx1 *= scale_x
+                        rx2 *= scale_x
+                        ry1 *= scale_y
+                        ry2 *= scale_y
+
+                    x1 = int(max(0, min(w, round(rx1))))
+                    y1 = int(max(0, min(h, round(ry1))))
+                    x2 = int(max(0, min(w, round(rx2))))
+                    y2 = int(max(0, min(h, round(ry2))))
+
+                    if (x2 - x1) < 4 or (y2 - y1) < 4:
+                        continue
 
                     sys_label = raw_cls.lower().strip().replace(" ", "_")
 

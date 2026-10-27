@@ -82,6 +82,7 @@ def apply_scenario(scenario_dict):
     img_path = os.path.join("data/sample_images", scenario_dict.get("image_file", "earthquake_collapse.jpg"))
     state.image_path = img_path
     state.image_name = scenario_dict.get("image_file", "image.jpg")
+    graph.bg_image_path = img_path
 
     if os.path.exists(img_path):
         pil_img = Image.open(img_path)

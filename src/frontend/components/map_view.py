@@ -13,19 +13,39 @@ def render_road_network_figure(
     graph: RoadNetwork,
     route_path: Optional[List[str]] = None,
     incident_node: Optional[str] = None,
-    goal_node: Optional[str] = None
+    goal_node: Optional[str] = None,
+    bg_image: Optional[Image.Image] = None,
+    show_image_overlay: bool = True
 ) -> plt.Figure:
     """
     Renders an offline tactical road network map using pure Matplotlib.
     Guarantees 1-to-1 exact rendering of every physical road edge in the active graph network.
+    Optionally overlays graph directly on top of the active disaster aerial photograph.
     """
     fig, ax = plt.subplots(figsize=(10, 7.5), facecolor="#0b0f19")
     ax.set_facecolor("#0f172a")
 
     # Load Background Map Image Graphic if configured
-    if graph.bg_image_path and os.path.exists(graph.bg_image_path):
-        bg_img = Image.open(graph.bg_image_path)
-        ax.imshow(bg_img, extent=[0, 10, 0, 10], aspect="auto", alpha=0.85, zorder=0)
+    img_to_render = bg_image
+    if img_to_render is None and show_image_overlay and graph.bg_image_path and os.path.exists(graph.bg_image_path):
+        try:
+            img_to_render = Image.open(graph.bg_image_path)
+        except Exception:
+            img_to_render = None
+
+    # Calculate coordinate bounds from graph nodes so background aligns with any preset or custom map
+    xs = [n["x"] for n in graph.nodes.values()] if graph.nodes else [0.0, 10.0]
+    ys = [n["y"] for n in graph.nodes.values()] if graph.nodes else [0.0, 10.0]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    pad_x = 0.5 if (max_x - min_x) > 0 else 1.0
+    pad_y = 0.5 if (max_y - min_y) > 0 else 1.0
+    ext = [min_x - pad_x, max_x + pad_x, min_y - pad_y, max_y + pad_y]
+
+    if img_to_render is not None and show_image_overlay:
+        ax.imshow(img_to_render, extent=ext, aspect="auto", alpha=0.50, zorder=0)
+        # Subtle dark scrim so high-contrast tactical markers remain prominent
+        ax.fill([ext[0], ext[1], ext[1], ext[0]], [ext[2], ext[2], ext[3], ext[3]], color="#0b0f19", alpha=0.30, zorder=1)
 
     # 1. Draw Edges (Strict deduplication ensuring every road in graph.adj is drawn)
     seen_drawn_edges = set()

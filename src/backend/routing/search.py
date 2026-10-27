@@ -97,6 +97,51 @@ def a_star_search(graph: RoadNetwork, start: str, goal: str) -> RouteResult:
                 tie_breaker += 1
                 heapq.heappush(frontier, (tentative_g + h, tie_breaker, neighbor))
 
+    # 2. Emergency Heavy Clearance / Bulldozer Escort Fallback
+    # If all standard routes are severed, find the route requiring minimum obstacle excavation
+    c_frontier = []
+    c_tie_breaker = 0
+    heapq.heappush(c_frontier, (h_start, c_tie_breaker, start))
+    c_came_from: Dict[str, str] = {}
+    c_g_score: Dict[str, float] = {start: 0.0}
+    c_visited = set()
+
+    while c_frontier:
+        f, _, current = heapq.heappop(c_frontier)
+        if current in c_visited:
+            continue
+        c_visited.add(current)
+        if current == goal:
+            path = _reconstruct_path(c_came_from, current)
+            cost, dist_km, time_min = _calculate_path_metrics(graph, path)
+            blocked_count = sum(1 for i in range(len(path) - 1) if graph.adj[path[i]][path[i+1]]["is_blocked"])
+            runtime_ms = (time.perf_counter() - start_time) * 1000.0
+            return RouteResult(
+                algorithm="A* (Emergency Clearance)",
+                path=path,
+                cost=time_min + (blocked_count * 20.0),
+                distance_km=dist_km,
+                travel_time_min=time_min + (blocked_count * 20.0),
+                nodes_expanded=nodes_expanded,
+                runtime_ms=runtime_ms,
+                is_optimal=False,
+                blocked_roads_avoided=blocked_count
+            )
+
+        for neighbor, edge in graph.adj.get(current, {}).items():
+            if edge["is_blocked"]:
+                e_cost = edge["base_time_min"] * 3.0 + 15.0
+            else:
+                e_cost = edge["base_time_min"] * (1.0 + edge["hazard_weight"])
+
+            tentative_g = c_g_score[current] + e_cost
+            if tentative_g < c_g_score.get(neighbor, float('inf')):
+                c_came_from[neighbor] = current
+                c_g_score[neighbor] = tentative_g
+                h = graph.admissible_travel_heuristic(neighbor, goal)
+                c_tie_breaker += 1
+                heapq.heappush(c_frontier, (tentative_g + h, c_tie_breaker, neighbor))
+
     runtime_ms = (time.perf_counter() - start_time) * 1000.0
     return RouteResult("A*", [], float('inf'), 0.0, 0.0, nodes_expanded, runtime_ms, False)
 

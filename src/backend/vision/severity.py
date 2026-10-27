@@ -17,17 +17,23 @@ class DisasterSeverityEstimator:
         detections: List[DetectionItem],
         road_conditions: Optional[List[RoadConditionAssessment]] = None
     ) -> SeverityAssessment:
+        # Ignore neutral/clear labels
+        real_detections = [
+            d for d in detections 
+            if d.label.lower().strip() not in ["clear_terrain", "normal", "none", "clear"]
+        ]
+
         damaged_building_count = sum(
-            1 for d in detections 
-            if any(k in d.label.lower().replace("_", " ") for k in ["building", "structure", "rubble", "collapse", "debris"])
+            1 for d in real_detections 
+            if any(k in d.label.lower().replace("_", " ") for k in ["building", "structure", "rubble", "collapse", "debris", "bridge", "masonry"])
         )
         blocked_road_count = sum(
-            1 for d in detections 
-            if any(k in d.label.lower().replace("_", " ") for k in ["road", "blocked", "blockage", "flood", "water", "landslide", "obstacle"])
+            1 for d in real_detections 
+            if any(k in d.label.lower().replace("_", " ") for k in ["road", "blocked", "blockage", "flood", "water", "landslide", "obstacle", "mudflow", "rockfall", "washout", "sinkhole", "tree", "wreckage"])
         )
         fire_detected = any(
-            any(k in d.label.lower().replace("_", " ") for k in ["fire", "smoke", "flame", "thermal"]) 
-            for d in detections
+            any(k in d.label.lower().replace("_", " ") for k in ["fire", "smoke", "flame", "thermal", "burn"]) 
+            for d in real_detections
         )
 
         # If detailed road conditions are provided, supplement blocked count
@@ -39,11 +45,24 @@ class DisasterSeverityEstimator:
                 if rc.condition != "Normal":
                     road_summary_parts.append(f"{rc.segment_id}: {rc.condition} ({rc.confidence:.0%})")
 
+        # If aerial scan found no hazards and all corridors are clear, score is 0.00 (Low)
+        if not real_detections and blocked_road_count == 0 and not fire_detected:
+            return SeverityAssessment(
+                score=0.0,
+                label="Low",
+                damaged_building_ratio=0.0,
+                blocked_road_count=0,
+                fire_detected=False,
+                affected_zone_density=0.0,
+                rationale="Aerial scan confirms clear terrain with no visible infrastructure damage or hazards.",
+                road_condition_summary="All surveyed corridors passable"
+            )
+
         # Normalize metrics against operational disaster thresholds
         damaged_building_ratio = min(1.0, damaged_building_count / 4.0)
         blocked_road_norm = min(1.0, blocked_road_count / 3.0)
         fire_factor = 1.0 if fire_detected else 0.0
-        zone_density = round(min(1.0, (damaged_building_count + blocked_road_count) / 6.0), 2)
+        zone_density = round(min(1.0, (damaged_building_count + blocked_road_count + (1 if fire_detected else 0)) / 6.0), 2)
 
         # Transparent weighted scoring formula:
         # Score = 0.35 * damage_ratio + 0.25 * blocked_roads + 0.20 * fire + 0.20 * zone_density

@@ -88,6 +88,159 @@ class RoadNetwork:
                     penalty = hazard_factor * (1.0 - (dist_to_center / radius_km))
                     edge["hazard_weight"] = max(edge["hazard_weight"], penalty)
 
+    def apply_vision_detections(
+        self,
+        detections: List[Any],
+        image_size: Tuple[int, int] = (640, 480),
+        clear_previous: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Translates spatial AI vision hazard bounding boxes into dynamic road graph constraints.
+        Projects pixel-space bounding boxes [x1, y1, x2, y2] into normalized network grid coordinates [0, 10] x [0, 10].
+        Computes line-segment to AABB intersection with all road edges:
+          - 'blocked_road', 'damaged_building', 'structural_collapse' -> marks edge is_blocked = True
+          - 'flood_inundation', 'fire_indicator', etc. -> penalizes edge with dynamic hazard_weight
+        Returns list of impacted edge records.
+        """
+        w, h = image_size
+        if w <= 0 or h <= 0:
+            return []
+
+        if clear_previous:
+            for u in self.adj:
+                for v in self.adj[u]:
+                    self.adj[u][v]["is_blocked"] = False
+                    self.adj[u][v]["hazard_weight"] = 0.0
+
+        def line_intersects_box(x1: float, y1: float, x2: float, y2: float,
+                                bx1: float, bx2: float, by1: float, by2: float) -> bool:
+            if (bx1 <= x1 <= bx2 and by1 <= y1 <= by2) or (bx1 <= x2 <= bx2 and by1 <= y2 <= by2):
+                return True
+            dx = x2 - x1
+            dy = y2 - y1
+            p = [-dx, dx, -dy, dy]
+            q = [x1 - bx1, bx2 - x1, y1 - by1, by2 - y1]
+            u1, u2 = 0.0, 1.0
+            for pi, qi in zip(p, q):
+                if pi == 0:
+                    if qi < 0:
+                        return False
+                else:
+                    t = qi / pi
+                    if pi < 0:
+                        if t > u2:
+                            return False
+                        if t > u1:
+                            u1 = t
+                    else:
+                        if t < u1:
+                            return False
+                        if t < u2:
+                            u2 = t
+            return u1 <= u2
+
+        # Determine dynamic spatial boundaries of active network
+        xs = [n["x"] for n in self.nodes.values()] if self.nodes else [0.0, 10.0]
+        ys = [n["y"] for n in self.nodes.values()] if self.nodes else [0.0, 10.0]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        span_x = (max_x - min_x) if (max_x - min_x) > 0 else 10.0
+        span_y = (max_y - min_y) if (max_y - min_y) > 0 else 10.0
+
+        impacted = []
+        for det in detections:
+            bbox = getattr(det, "bounding_box", None)
+            if not bbox or len(bbox) != 4:
+                continue
+
+            px1, py1, px2, py2 = bbox
+            gx1 = min_x + (px1 / float(w)) * span_x
+            gx2 = min_x + (px2 / float(w)) * span_x
+            gy1 = min_y + (1.0 - (py2 / float(h))) * span_y
+            gy2 = min_y + (1.0 - (py1 / float(h))) * span_y
+
+            bx_min, bx_max = min(gx1, gx2), max(gx1, gx2)
+            by_min, by_max = min(gy1, gy2), max(gy1, gy2)
+
+            label = getattr(det, "label", "").lower()
+            conf = float(getattr(det, "confidence", 0.8))
+
+            buf = 0.04 * max(span_x, span_y)
+            bx_min = max(min_x, bx_min - buf)
+            bx_max = min(max_x, bx_max + buf)
+            by_min = max(min_y, by_min - buf)
+            by_max = min(max_y, by_max + buf)
+
+            seen_edges = set()
+            for u in self.adj:
+                for v in self.adj[u]:
+                    pair = tuple(sorted([u, v]))
+                    if pair in seen_edges:
+                        continue
+                    seen_edges.add(pair)
+
+                    if u in self.nodes and v in self.nodes:
+                        ux, uy = self.nodes[u]["x"], self.nodes[u]["y"]
+                        vx, vy = self.nodes[v]["x"], self.nodes[v]["y"]
+
+                        if line_intersects_box(ux, uy, vx, vy, bx_min, bx_max, by_min, by_max):
+                            # 1. Direct Physical Corridor Severance (Strict criteria)
+                            if any(k in label for k in ["blocked_road", "severed", "impassable", "catastrophic"]) and conf >= 0.82:
+                                self.set_edge_status(u, v, is_blocked=True)
+                                impacted.append({
+                                    "u": u, "v": v,
+                                    "status": "blocked",
+                                    "cause": label,
+                                    "confidence": conf
+                                })
+                            # 2. Structural Damage / Rubble / Landslide (Hazard Delay — Passable with Caution)
+                            elif any(k in label for k in ["damaged_building", "rubble", "debris", "collapse", "landslide"]):
+                                penalty = round(1.2 + conf * 2.8, 2)
+                                curr = self.adj[u][v]["hazard_weight"]
+                                self.set_edge_status(u, v, is_blocked=False, hazard_weight=max(curr, penalty))
+                                impacted.append({
+                                    "u": u, "v": v,
+                                    "status": f"hazard ({penalty}x delay)",
+                                    "cause": label,
+                                    "confidence": conf
+                                })
+                            # 3. Water / Flood / Inundation (Slow transit crawl for emergency vehicles)
+                            elif any(k in label for k in ["flood", "water", "inundation"]):
+                                penalty = round(1.5 + conf * 3.2, 2)
+                                curr = self.adj[u][v]["hazard_weight"]
+                                self.set_edge_status(u, v, is_blocked=False, hazard_weight=max(curr, penalty))
+                                impacted.append({
+                                    "u": u, "v": v,
+                                    "status": f"hazard ({penalty}x delay)",
+                                    "cause": label,
+                                    "confidence": conf
+                                })
+                            # 4. Fire / Thermal Hotspots
+                            elif any(k in label for k in ["fire", "smoke", "thermal"]):
+                                penalty = round(2.0 + conf * 3.0, 2)
+                                curr = self.adj[u][v]["hazard_weight"]
+                                self.set_edge_status(u, v, is_blocked=False, hazard_weight=max(curr, penalty))
+                                impacted.append({
+                                    "u": u, "v": v,
+                                    "status": f"hazard ({penalty}x delay)",
+                                    "cause": label,
+                                    "confidence": conf
+                                })
+
+        # Guard against total network deadlock:
+        # If over 35% of all edges are blocked, downgrade the lowest-confidence ones to severe hazard delays (6.0x)
+        total_edges = sum(len(neighbors) for neighbors in self.adj.values()) // 2
+        blocked_records = [item for item in impacted if item["status"] == "blocked"]
+        max_allowed_blocks = max(2, int(total_edges * 0.35))
+        if len(blocked_records) > max_allowed_blocks:
+            blocked_records.sort(key=lambda x: x["confidence"], reverse=True)
+            for excess in blocked_records[max_allowed_blocks:]:
+                eu, ev = excess["u"], excess["v"]
+                self.set_edge_status(eu, ev, is_blocked=False, hazard_weight=6.0)
+                excess["status"] = "hazard (6.0x delay — partial debris)"
+
+        return impacted
+
     def get_edge_cost(self, u: str, v: str) -> float:
         """
         Computes the effective traversal cost:
