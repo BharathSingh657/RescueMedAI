@@ -116,6 +116,32 @@ def test_katpadi_vellore_map_routing():
     assert ("K-06", "K-05") not in zip(reroute.path, reroute.path[1:])
 
 
+def test_disaster_image_overlay_preset():
+    presets = RoadNetwork.get_available_presets()
+    assert "disaster_image_overlay" in presets
+    assert len(presets) >= 5
+
+    # City grid and Katpadi have normal clean background (no disaster image)
+    grid_net = RoadNetwork.create_from_preset("city_grid")
+    assert grid_net.bg_image_path is None
+
+    katpadi_net = RoadNetwork.create_from_preset("katpadi_vellore")
+    assert katpadi_net.bg_image_path is None
+
+    # Disaster photo overlay has image background and active nodes
+    img_net = RoadNetwork.create_from_preset("disaster_image_overlay", image_path="data/sample_images/custom_latest.jpg")
+    assert img_net.bg_image_path == "data/sample_images/custom_latest.jpg"
+    assert "D-01" in img_net.nodes
+    assert "H-01" in img_net.nodes
+
+    # Route from D-01 to H-01
+    route = a_star_search(img_net, "D-01", "H-01")
+    assert route.path
+    assert route.path[0] == "D-01"
+    assert route.path[-1] == "H-01"
+    assert route.cost > 0.0
+
+
 def test_chatgpt_json_map_parsing():
     chatgpt_json = """
     {

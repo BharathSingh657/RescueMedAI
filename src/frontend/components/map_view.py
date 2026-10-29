@@ -33,14 +33,19 @@ def render_road_network_figure(
         except Exception:
             img_to_render = None
 
-    # Calculate coordinate bounds from graph nodes so background aligns with any preset or custom map
+    # Calculate coordinate bounds with generous padding so map never clips out of frame
     xs = [n["x"] for n in graph.nodes.values()] if graph.nodes else [0.0, 10.0]
     ys = [n["y"] for n in graph.nodes.values()] if graph.nodes else [0.0, 10.0]
     min_x, max_x = min(xs), max(xs)
     min_y, max_y = min(ys), max(ys)
-    pad_x = 0.5 if (max_x - min_x) > 0 else 1.0
-    pad_y = 0.5 if (max_y - min_y) > 0 else 1.0
+    span_x = max_x - min_x
+    span_y = max_y - min_y
+    pad_x = max(1.2, span_x * 0.15) if span_x > 0 else 1.5
+    pad_y = max(1.2, span_y * 0.15) if span_y > 0 else 1.5
     ext = [min_x - pad_x, max_x + pad_x, min_y - pad_y, max_y + pad_y]
+
+    ax.set_xlim(ext[0], ext[1])
+    ax.set_ylim(ext[2], ext[3])
 
     if img_to_render is not None and show_image_overlay:
         ax.imshow(img_to_render, extent=ext, aspect="auto", alpha=0.50, zorder=0)

@@ -61,10 +61,7 @@ def render_routing_tab():
                 try:
                     json_content = c_file.read().decode("utf-8")
                     custom_net = RoadNetwork.from_json_string(json_content)
-                    if state.image_path:
-                        custom_net.bg_image_path = state.image_path
-                    if state.detections:
-                        RoadNetwork.apply_vision_detections(custom_net, state.detections)
+                    custom_net.bg_image_path = None
 
                     st.session_state.graph = custom_net
                     st.session_state.current_map_preset = "custom_upload"
@@ -92,10 +89,8 @@ def render_routing_tab():
             mime="application/json"
         )
     elif st.session_state.get("current_map_preset") != selected_preset_key:
-        new_net = RoadNetwork.create_from_preset(selected_preset_key)
-        if state.image_path:
-            new_net.bg_image_path = state.image_path
-        if state.detections and st.session_state.get("is_custom_image_uploaded"):
+        new_net = RoadNetwork.create_from_preset(selected_preset_key, image_path=state.image_path)
+        if selected_preset_key in ["disaster_image_overlay", "uploaded_image_map"] and state.detections:
             RoadNetwork.apply_vision_detections(new_net, state.detections)
 
         st.session_state.graph = new_net
@@ -214,38 +209,78 @@ def render_routing_tab():
                         st.rerun()
 
             # Load and annotate aerial photo or tactical canvas
-            img_src = state.image_path if state.image_path and os.path.exists(state.image_path) else st.session_state.graph.bg_image_path
+            img_src = st.session_state.graph.bg_image_path if (st.session_state.graph.bg_image_path and os.path.exists(st.session_state.graph.bg_image_path)) else None
             if img_src and os.path.exists(img_src):
                 base_img = Image.open(img_src).convert("RGB")
                 tint = Image.new("RGB", base_img.size, (15, 23, 42))
                 base_img = Image.blend(base_img, tint, 0.22)
+                disp_w = 720
+                disp_h = max(380, int(disp_w * (base_img.height / float(base_img.width))))
+                canvas_img = base_img.resize((disp_w, disp_h), Image.BILINEAR)
+                draw = ImageDraw.Draw(canvas_img)
+                min_x, max_x = 0.0, 10.0
+                min_y, max_y = 0.0, 10.0
+                span_x, span_y = 10.0, 10.0
+                margin_left, margin_right = 35, 45
+                margin_top, margin_bottom = 30, 30
             else:
-                base_img = Image.new("RGB", (720, 520), color=(15, 23, 42))
-                grid_draw = ImageDraw.Draw(base_img)
-                for gx in range(0, 720, 60):
-                    grid_draw.line([(gx, 0), (gx, 520)], fill=(30, 41, 59), width=1)
-                for gy in range(0, 520, 60):
-                    grid_draw.line([(0, gy), (720, gy)], fill=(30, 41, 59), width=1)
+                disp_w = 720
+                disp_h = 490
+                canvas_img = Image.new("RGB", (disp_w, disp_h), color=(11, 15, 25))
+                draw = ImageDraw.Draw(canvas_img)
 
-            disp_w = 720
-            disp_h = max(380, int(disp_w * (base_img.height / float(base_img.width))))
-            canvas_img = base_img.resize((disp_w, disp_h), Image.BILINEAR)
-            draw = ImageDraw.Draw(canvas_img)
+                # Compute auto-scaled bounds from graph nodes with 10% framing padding
+                raw_xs = [n["x"] for n in st.session_state.graph.nodes.values()] if st.session_state.graph.nodes else [0.0, 10.0]
+                raw_ys = [n["y"] for n in st.session_state.graph.nodes.values()] if st.session_state.graph.nodes else [0.0, 10.0]
+                data_min_x, data_max_x = min(raw_xs), max(raw_xs)
+                data_min_y, data_max_y = min(raw_ys), max(raw_ys)
+                span_data_x = data_max_x - data_min_x
+                span_data_y = data_max_y - data_min_y
+                pad_data_x = max(0.6, span_data_x * 0.08) if span_data_x > 0 else 1.0
+                pad_data_y = max(0.6, span_data_y * 0.08) if span_data_y > 0 else 1.0
 
-            # Spatial mapping bounds (stable at minimum 0-10)
-            xs = [n["x"] for n in st.session_state.graph.nodes.values()] if st.session_state.graph.nodes else [0.0, 10.0]
-            ys = [n["y"] for n in st.session_state.graph.nodes.values()] if st.session_state.graph.nodes else [0.0, 10.0]
-            min_x = min(0.0, min(xs))
-            max_x = max(10.0, max(xs))
-            min_y = min(0.0, min(ys))
-            max_y = max(10.0, max(ys))
-            span_x = (max_x - min_x) if (max_x - min_x) > 0 else 10.0
-            span_y = (max_y - min_y) if (max_y - min_y) > 0 else 10.0
+                min_x = data_min_x - pad_data_x
+                max_x = data_max_x + pad_data_x
+                min_y = data_min_y - pad_data_y
+                max_y = data_max_y + pad_data_y
+                span_x = (max_x - min_x) if (max_x - min_x) > 0 else 10.0
+                span_y = (max_y - min_y) if (max_y - min_y) > 0 else 10.0
+
+                margin_left = 65
+                margin_right = 85
+                margin_top = 40
+                margin_bottom = 40
+
+                # Outer tactical border with corner accents
+                draw.rectangle([margin_left - 15, margin_top - 15, disp_w - margin_right + 15, disp_h - margin_bottom + 15], outline=(30, 41, 59), width=1)
+                # Fine inner gridlines
+                for gx in range(margin_left - 15, disp_w - margin_right + 15, 45):
+                    draw.line([(gx, margin_top - 15), (gx, disp_h - margin_bottom + 15)], fill=(19, 28, 46), width=1)
+                for gy in range(margin_top - 15, disp_h - margin_bottom + 15, 45):
+                    draw.line([(margin_left - 15, gy), (disp_w - margin_right + 15, gy)], fill=(19, 28, 46), width=1)
+                # Tactical corner crosshairs
+                for cx, cy in [
+                    (margin_left - 15, margin_top - 15),
+                    (disp_w - margin_right + 15, margin_top - 15),
+                    (margin_left - 15, disp_h - margin_bottom + 15),
+                    (disp_w - margin_right + 15, disp_h - margin_bottom + 15)
+                ]:
+                    draw.line([(cx - 7, cy), (cx + 7, cy)], fill=(51, 65, 85), width=2)
+                    draw.line([(cx, cy - 7), (cx, cy + 7)], fill=(51, 65, 85), width=2)
+                draw.text((margin_left - 10, margin_top - 30), "TACTICAL NETWORK GRID • CAD/GIS FRAME", fill=(71, 85, 105))
+
+            draw_w = max(100, disp_w - margin_left - margin_right)
+            draw_h = max(100, disp_h - margin_top - margin_bottom)
 
             def to_px(gx, gy):
-                px = int(((gx - min_x) / span_x) * disp_w)
-                py = int(((max_y - gy) / span_y) * disp_h)
+                px = int(margin_left + ((gx - min_x) / span_x) * draw_w)
+                py = int(margin_top + ((max_y - gy) / span_y) * draw_h)
                 return px, py
+
+            def to_geo(cx, cy):
+                gx = min_x + ((cx - margin_left) / float(draw_w)) * span_x
+                gy = max_y - ((cy - margin_top) / float(draw_h)) * span_y
+                return round(gx, 2), round(gy, 2)
 
             # Draw road edges
             for u in st.session_state.graph.adj:
@@ -298,8 +333,19 @@ def render_routing_tab():
 
                 draw.ellipse([px - rad, py - rad, px + rad, py + rad], fill=fill_color, outline=outline_color, width=2)
                 label_text = f"📍 {nid} [IN HAND]" if is_in_hand else (f"⭐️ {nid}" if nid == state.incident_node else (f"🏥 {nid}" if 'hospital' in node.get('type','') or nid == state.destination_node else (f"🚑 {nid}" if 'depot' in node.get('type','') else nid)))
-                draw.rectangle([px + rad + 2, py - 8, px + rad + 6 + len(label_text) * 7, py + 8], fill=(15, 23, 42), outline=outline_color if is_in_hand else None)
-                draw.text((px + rad + 4, py - 6), label_text, fill=(250, 204, 21) if is_in_hand else (255, 255, 255))
+                lbl_len_px = len(label_text) * 7 + 8
+                # If label box would bleed past right border, flip it to the left:
+                if px + rad + lbl_len_px > disp_w - 15:
+                    lbl_x1 = px - rad - lbl_len_px - 4
+                    lbl_x2 = px - rad - 2
+                    txt_x = px - rad - lbl_len_px + 2
+                else:
+                    lbl_x1 = px + rad + 2
+                    lbl_x2 = px + rad + lbl_len_px
+                    txt_x = px + rad + 6
+
+                draw.rectangle([lbl_x1, py - 9, lbl_x2, py + 9], fill=(15, 23, 42), outline=outline_color if is_in_hand else None)
+                draw.text((txt_x, py - 6), label_text, fill=(250, 204, 21) if is_in_hand else (255, 255, 255))
 
             # Streamlit interactive image coordinates
             click_pos = streamlit_image_coordinates(canvas_img, key="interactive_cursor_pin_canvas")
@@ -312,8 +358,7 @@ def render_routing_tab():
 
                     # 1. CREATE MODE ACTION
                     if action_mode == "➕ Create & Place New Node":
-                        new_gx = round(min_x + (cx / float(disp_w)) * span_x, 2)
-                        new_gy = round(max_y - (cy / float(disp_h)) * span_y, 2)
+                        new_gx, new_gy = to_geo(cx, cy)
                         new_gx = max(min_x, min(max_x, new_gx))
                         new_gy = max(min_y, min(max_y, new_gy))
 
@@ -367,8 +412,7 @@ def render_routing_tab():
                         st.rerun()
                     else:
                         if picked_pin and picked_pin in st.session_state.graph.nodes:
-                            new_gx = round(min_x + (cx / float(disp_w)) * span_x, 2)
-                            new_gy = round(max_y - (cy / float(disp_h)) * span_y, 2)
+                            new_gx, new_gy = to_geo(cx, cy)
                             new_gx = max(min_x, min(max_x, new_gx))
                             new_gy = max(min_y, min(max_y, new_gy))
 
@@ -395,37 +439,43 @@ def render_routing_tab():
                             st.toast(f"🎯 Picked up pin {closest_nid}! Click anywhere on the map to DROP it.")
                             st.rerun()
 
-            col_btn_reset, col_del = st.columns([1, 1.2])
-            with col_btn_reset:
+            deletable = [nid for nid in st.session_state.graph.nodes if nid not in [state.incident_node, state.destination_node]]
+            if deletable:
+                col_btn_reset, col_sel, col_del = st.columns([1.1, 1.2, 0.7])
+                with col_btn_reset:
+                    if st.button("🔄 Reset Pins", key="btn_reset_pins_canvas", use_container_width=True):
+                        preset = st.session_state.get("current_map_preset", "city_grid")
+                        st.session_state.graph = RoadNetwork.create_from_preset(preset, image_path=state.image_path)
+                        if preset in ["disaster_image_overlay", "uploaded_image_map"] and state.detections:
+                            RoadNetwork.apply_vision_detections(st.session_state.graph, state.detections)
+                        state.selected_route = a_star_search(st.session_state.graph, state.incident_node, state.destination_node)
+                        st.session_state["picked_pin"] = None
+                        st.rerun()
+
+                with col_sel:
+                    del_target = st.selectbox("Delete Node:", deletable, key="sel_del_target_node", label_visibility="collapsed")
+                with col_del:
+                    if st.button(f"🗑️ Delete", key="btn_del_target_node", use_container_width=True):
+                        st.session_state.graph.nodes.pop(del_target, None)
+                        st.session_state.graph.adj.pop(del_target, None)
+                        for u in list(st.session_state.graph.adj.keys()):
+                            st.session_state.graph.adj[u].pop(del_target, None)
+                        state.selected_route = a_star_search(st.session_state.graph, state.incident_node, state.destination_node)
+                        st.toast(f"🗑️ Deleted node {del_target} and removed associated road links.")
+                        st.rerun()
+            else:
                 if st.button("🔄 Reset Pin Positions to Original Map", key="btn_reset_pins_canvas", use_container_width=True):
                     preset = st.session_state.get("current_map_preset", "city_grid")
-                    st.session_state.graph = RoadNetwork.create_from_preset(preset)
-                    if state.image_path:
-                        st.session_state.graph.bg_image_path = state.image_path
-                    if state.detections:
+                    st.session_state.graph = RoadNetwork.create_from_preset(preset, image_path=state.image_path)
+                    if preset in ["disaster_image_overlay", "uploaded_image_map"] and state.detections:
                         RoadNetwork.apply_vision_detections(st.session_state.graph, state.detections)
                     state.selected_route = a_star_search(st.session_state.graph, state.incident_node, state.destination_node)
                     st.session_state["picked_pin"] = None
                     st.rerun()
 
-            with col_del:
-                deletable = [nid for nid in st.session_state.graph.nodes if nid not in [state.incident_node, state.destination_node]]
-                if deletable:
-                    d_c1, d_c2 = st.columns([2, 1])
-                    with d_c1:
-                        del_target = st.selectbox("Delete Node:", deletable, key="sel_del_target_node", label_visibility="collapsed")
-                    with d_c2:
-                        if st.button(f"🗑️ Delete", key="btn_del_target_node", use_container_width=True):
-                            st.session_state.graph.nodes.pop(del_target, None)
-                            st.session_state.graph.adj.pop(del_target, None)
-                            for u in list(st.session_state.graph.adj.keys()):
-                                st.session_state.graph.adj[u].pop(del_target, None)
-                            state.selected_route = a_star_search(st.session_state.graph, state.incident_node, state.destination_node)
-                            st.toast(f"🗑️ Deleted node {del_target} and removed associated road links.")
-                            st.rerun()
-
         else:
-            show_photo_overlay = st.toggle("🛰️ Overlay on Aerial Disaster Photo", value=True, key="toggle_aerial_bg")
+            has_bg = bool(st.session_state.graph.bg_image_path and os.path.exists(st.session_state.graph.bg_image_path))
+            show_photo_overlay = st.toggle("🛰️ Overlay Background Graphic / Photo", value=True, key="toggle_aerial_bg") if has_bg else False
             fig = render_road_network_figure(
                 graph=st.session_state.graph,
                 route_path=state.selected_route.path if state.selected_route else None,
@@ -435,8 +485,11 @@ def render_routing_tab():
             )
             st.pyplot(fig)
 
-        with st.expander("📍 Calibrate Road Nodes on Photo (Adjust Pin Locations)", expanded=False):
-            st.caption("Drag pins out of water, onto roads, or onto specific landmarks visible in your photo.")
+        with st.expander("📍 Calibrate Road Nodes (Adjust Pin Locations)", expanded=False):
+            if st.session_state.graph.bg_image_path:
+                st.caption("Drag pins out of water, onto roads, or onto specific landmarks visible in your background photo.")
+            else:
+                st.caption("Adjust pin coordinates on the tactical grid map.")
             cal_c1, cal_c2, cal_c3 = st.columns([1.3, 1.0, 1.0])
             with cal_c1:
                 cal_nid = st.selectbox(
@@ -466,10 +519,8 @@ def render_routing_tab():
 
             if st.button("🔄 Reset Pin Positions to Default", key="btn_reset_pins"):
                 preset = st.session_state.get("current_map_preset", "city_grid")
-                st.session_state.graph = RoadNetwork.create_from_preset(preset)
-                if state.image_path:
-                    st.session_state.graph.bg_image_path = state.image_path
-                if state.detections:
+                st.session_state.graph = RoadNetwork.create_from_preset(preset, image_path=state.image_path)
+                if preset in ["disaster_image_overlay", "uploaded_image_map"] and state.detections:
                     RoadNetwork.apply_vision_detections(st.session_state.graph, state.detections)
                 state.selected_route = a_star_search(st.session_state.graph, state.incident_node, state.destination_node)
                 st.rerun()

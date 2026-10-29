@@ -46,19 +46,21 @@ def render_vision_tab():
                 state.severity = DisasterSeverityEstimator.estimate(local_dets, road_conds)
                 state.image_name = uploaded_img.name
 
-                # Connect AI Vision Directly to the Tactical Road Graph:
+                # Connect AI Vision to Road Graph when disaster image overlay mode is active:
                 if state.image_path and "graph" in st.session_state:
-                    st.session_state.graph.bg_image_path = state.image_path
-                    from src.backend.routing.graph import RoadNetwork
-                    if hasattr(st.session_state.graph, "apply_vision_detections"):
-                        impacted = st.session_state.graph.apply_vision_detections(
-                            local_dets, image_size=raw_img.size, clear_previous=False
-                        )
-                    else:
-                        impacted = RoadNetwork.apply_vision_detections(
-                            st.session_state.graph, local_dets, image_size=raw_img.size, clear_previous=False
-                        )
-                    st.session_state["vision_impacted_edges"] = impacted
+                    current_preset = st.session_state.get("current_map_preset", "city_grid")
+                    if current_preset in ["disaster_image_overlay", "uploaded_image_map"]:
+                        st.session_state.graph.bg_image_path = state.image_path
+                        from src.backend.routing.graph import RoadNetwork
+                        if hasattr(st.session_state.graph, "apply_vision_detections"):
+                            impacted = st.session_state.graph.apply_vision_detections(
+                                local_dets, image_size=raw_img.size, clear_previous=False
+                            )
+                        else:
+                            impacted = RoadNetwork.apply_vision_detections(
+                                st.session_state.graph, local_dets, image_size=raw_img.size, clear_previous=False
+                            )
+                        st.session_state["vision_impacted_edges"] = impacted
 
                     # Recalculate A* route, resource allocation, and hospital dispatch
                     from src.backend.routing.search import a_star_search

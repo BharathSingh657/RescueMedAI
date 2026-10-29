@@ -6,6 +6,7 @@ Supports dynamic hazard-weighting, road closures, and spatial coordinates.
 from typing import Dict, List, Tuple, Optional, Any
 import math
 import json
+import os
 
 
 class RoadNetwork:
@@ -554,22 +555,66 @@ class RoadNetwork:
         return net
 
     @classmethod
+    def create_disaster_image_network(cls, image_path: Optional[str] = None) -> "RoadNetwork":
+        """
+        Creates a road network designed specifically to overlay directly onto the uploaded disaster image.
+        Default pin positions are spread across the spatial coordinate frame [0.0 - 10.0] x [0.0 - 10.0]
+        allowing responders to interactively pick, drop, calibrate, and route on top of real aerial photography.
+        """
+        net = cls()
+        default_img = "data/sample_images/custom_latest.jpg" if os.path.exists("data/sample_images/custom_latest.jpg") else "data/sample_images/earthquake_collapse.jpg"
+        chosen_img = image_path if (image_path and os.path.exists(image_path)) else (default_img if os.path.exists(default_img) else None)
+        if chosen_img and os.path.exists(chosen_img):
+            net.bg_image_path = chosen_img
+
+        coords = {
+            "D-01": ("Emergency Staging Depot Alpha", 1.5, 1.5, "depot"),
+            "N-01": ("West Sector Access Waypoint", 2.5, 4.0, "intersection"),
+            "N-02": ("Central Disaster Zone / Rubble Crossing", 5.0, 5.0, "incident_zone"),
+            "N-03": ("East Corridor Evacuation Route", 7.5, 4.0, "intersection"),
+            "N-04": ("South Sector Bypass", 4.0, 8.0, "intersection"),
+            "H-01": ("Forward Emergency Medical Center", 8.5, 8.5, "hospital"),
+        }
+
+        for nid, (name, x, y, ntype) in coords.items():
+            net.add_node(nid, name, x, y, ntype)
+
+        edges = [
+            ("D-01", "N-01", 2.8, 45.0),
+            ("N-01", "N-02", 2.7, 40.0),
+            ("N-02", "N-03", 2.7, 40.0),
+            ("N-01", "N-04", 4.2, 35.0),
+            ("N-02", "N-04", 3.2, 40.0),
+            ("N-03", "H-01", 4.6, 50.0),
+            ("N-04", "H-01", 4.5, 45.0),
+            ("D-01", "N-02", 4.9, 45.0),
+        ]
+
+        for u, v, dist, speed in edges:
+            net.add_edge(u, v, dist, speed)
+
+        return net
+
+    @classmethod
     def get_available_presets(cls) -> Dict[str, str]:
         """Returns map preset keys and human-readable names."""
         return {
-            "vector_city_map": "🗺️ Vector Street & River Map (Graphic Overlay)",
-            "katpadi_vellore": "📍 Katpadi / Vellore Regional Road Map (11 Nodes)",
             "city_grid": "📐 Tactical City Grid Map (16 Nodes)",
-            "custom_upload": "📁 Custom Uploaded / User-Defined Road Map"
+            "katpadi_vellore": "📍 Katpadi / Vellore Regional Road Map (11 Nodes)",
+            "vector_city_map": "🗺️ Vector Street & River Map (Graphic Overlay)",
+            "custom_upload": "📁 Custom Uploaded / User-Defined Road Map",
+            "disaster_image_overlay": "🛰️ Uploaded Disaster Photo Map (Interactive Pin Placement)"
         }
 
     @classmethod
-    def create_from_preset(cls, preset_key: str) -> "RoadNetwork":
+    def create_from_preset(cls, preset_key: str, image_path: Optional[str] = None) -> "RoadNetwork":
         """Factory method to instantiate a road network by preset key."""
         if preset_key == "vector_city_map":
             return cls.create_vector_city_network()
         elif preset_key == "katpadi_vellore":
             return cls.create_katpadi_vellore_network()
+        elif preset_key in ["disaster_image_overlay", "uploaded_image_map"]:
+            return cls.create_disaster_image_network(image_path)
         return cls.create_default_city_grid()
 
     @classmethod
